@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>PeerSpace — Lobby</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="lobby-wrap">
+  <div class="lobby-card">
+
+    <div class="lobby-logo">
+      <div class="lobby-logo-dot"></div>
+      <span class="lobby-logo-name">PeerSpace</span>
+    </div>
+    <div class="lobby-tag">Serverless Academic Collaboration · WebRTC P2P Demo</div>
+
+    <div class="field-group">
+      <label class="field-label" for="nameInput">YOUR NAME</label>
+      <input id="nameInput" class="field-input" type="text" placeholder="e.g. Researcher A" autocomplete="off" maxlength="30"/>
+    </div>
+
+    <div class="field-group">
+      <label class="field-label" for="roomInput">ROOM CODE</label>
+      <div class="field-row">
+        <input id="roomInput" class="field-input mono" type="text" placeholder="ABC123" maxlength="8" autocomplete="off"/>
+        <button class="lbtn lbtn-icon" id="genRoomBtn" title="Generate code">↻</button>
+      </div>
+    </div>
+
+    <p class="lobby-err" id="errMsg" hidden></p>
+
+    <div class="lobby-actions">
+      <button class="lbtn lbtn-sec" id="joinBtn">Join Room</button>
+      <button class="lbtn lbtn-pri" id="createBtn">Create &amp; Open</button>
+    </div>
+
+    <div class="lobby-note">
+      <strong>How to demo across tabs:</strong> Click <em>Create &amp; Open</em> — a room tab opens.
+      Copy that tab's URL and paste into a <strong>second tab or window</strong> with a different name.
+      Both tabs will connect directly via WebRTC with <strong>zero server involvement</strong> after the handshake.
+      <br><br>
+      ⚠️ Use <strong>Chrome</strong> — Firefox restricts BroadcastChannel on <code>file://</code> origins.
+    </div>
+
+  </div>
+</div>
+<script src="js/config.js"></script>
+<script src="js/lobby.js"></script>
+</body>
+</html>

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Tiny Summarizer</title>
+    <style>
+        body { font-family: sans-serif; max-width: 600px; margin: 2rem auto; padding: 0 1rem; }
+        textarea { width: 100%; height: 150px; margin-bottom: 1rem; }
+        button { padding: 0.5rem 1rem; }
+        #result { margin-top: 1rem; white-space: pre-wrap; background: #f4f4f4; padding: 1rem; border-radius: 4px; }
+        .error { color: red; background: #ffeeee; }
+        .loading { opacity: 0.5; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <h2>📝 Candid Transcript Summarizer</h2>
+    <textarea id="transcript" placeholder="Paste your transcript here..."></textarea>
+    <br>
+    <button id="summarizeBtn">Summarize</button>
+    <div id="result"></div>
+
+    <script type="module">
+        // Import Transformers.js from CDN
+        import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.6.0';
+
+        // DOM elements
+        const transcriptEl = document.getElementById('transcript');
+        const btn = document.getElementById('summarizeBtn');
+        const resultEl = document.getElementById('result');
+
+        // We'll load the pipeline once and reuse it
+        let summarizer = null;
+
+        // Helper to update UI with result/error
+        function setResult(text, isError = false) {
+            resultEl.textContent = text;
+            resultEl.className = isError ? 'error' : '';
+        }
+
+        // Helper to toggle loading state
+        function setLoading(isLoading) {
+            if (isLoading) {
+                btn.classList.add('loading');
+                btn.disabled = true;
+                setResult('⏳ Loading model & summarizing... (first run may take a few seconds)');
+            } else {
+                btn.classList.remove('loading');
+                btn.disabled = false;
+            }
+        }
+
+        // Main summarization function
+        async function summarize() {
+            const text = transcriptEl.value.trim();
+            if (!text) {
+                setResult('❌ Please paste a transcript first.', true);
+                return;
+            }
+
+            setLoading(true);
+
+            try {
+                // Lazy-load the pipeline
+                if (!summarizer) {
+                    console.log('Loading summarization model...');
+                    // Using a small, fast model for candid summaries
+                    summarizer = await pipeline('summarization', 'Xenova/distilbart-cnn-6-6');
+                    console.log('Model loaded.');
+                }
+
+                // Generate summary
+                const result = await summarizer(text, {
+                    max_length: 150,      // maximum length of the summary
+                    min_length: 30,        // minimum length
+                    do_sample: false       // greedy decoding for deterministic output
+                });
+
+                // Display the summary
+                setResult(`✅ Summary:\n${result[0].summary_text}`);
+            } catch (error) {
+                console.error('Summarization error:', error);
+                setResult(`❌ An error occurred: ${error.message}`, true);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        // Attach event listener
+        btn.addEventListener('click', summarize);
+    </script>
+</body>
+</html>

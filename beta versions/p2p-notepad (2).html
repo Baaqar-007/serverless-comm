@@ -1,0 +1,1336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>PeerSpace — Live Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Sora:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e17;
+    --surface: #111827;
+    --surface2: #1a2235;
+    --border: #1e3a5f;
+    --blue: #0ea5e9;
+    --teal: #14b8a6;
+    --green: #22c55e;
+    --amber: #f59e0b;
+    --red: #ef4444;
+    --purple: #8b5cf6;
+    --white: #f0f4ff;
+    --muted: #6b7fa3;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'Sora', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    font-family: var(--sans);
+    color: var(--white);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── TOPBAR ─────────────────────────────────────────────── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    height: 52px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    gap: 16px;
+  }
+
+  .logo {
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--white);
+    letter-spacing: -0.5px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .logo-dot { width: 8px; height: 8px; background: var(--teal); border-radius: 50%; }
+
+  .demo-badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--amber);
+    background: rgba(245,158,11,0.12);
+    border: 1px solid rgba(245,158,11,0.3);
+    padding: 2px 8px;
+    border-radius: 4px;
+    letter-spacing: 1px;
+  }
+
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-left: auto;
+  }
+
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--muted);
+  }
+  .status-pill .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: background 0.3s;
+  }
+  .status-pill.connected .dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .status-pill.connected { color: var(--green); }
+
+  .connect-btn {
+    padding: 6px 18px;
+    background: var(--blue);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.3px;
+  }
+  .connect-btn:hover { background: #38bdf8; transform: translateY(-1px); }
+  .connect-btn:disabled { background: var(--teal); cursor: default; transform: none; }
+
+  /* ── STAGE LABELS ──────────────────────────────────────── */
+  .stage-banner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    padding: 6px 24px;
+    background: rgba(14,165,233,0.05);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+
+  .stage {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 16px;
+    font-size: 10px;
+    font-family: var(--mono);
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: 0.8px;
+    transition: color 0.3s;
+    white-space: nowrap;
+  }
+  .stage.active { color: var(--blue); }
+  .stage.done { color: var(--green); }
+  .stage .step-dot {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    border: 1.5px solid currentColor;
+    display: flex;align-items:center;justify-content:center;
+    font-size: 9px;
+    transition: all 0.3s;
+    flex-shrink: 0;
+  }
+  .stage.done .step-dot {
+    background: var(--green);
+    border-color: var(--green);
+    color: #000;
+  }
+  .stage.active .step-dot {
+    border-color: var(--blue);
+    background: rgba(14,165,233,0.15);
+    color: var(--blue);
+    animation: pulse-ring 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse-ring {
+    0%,100% { box-shadow: 0 0 0 0 rgba(14,165,233,0.4); }
+    50% { box-shadow: 0 0 0 5px rgba(14,165,233,0); }
+  }
+  .stage-arrow { color: var(--border); font-size: 12px; }
+
+  /* ── MAIN LAYOUT ───────────────────────────────────────── */
+  .main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    gap: 0;
+  }
+
+  /* ── PEER PANEL ────────────────────────────────────────── */
+  .peer-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .peer-panel:last-child { border-right: none; }
+
+  .peer-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .peer-avatar {
+    width: 28px; height: 28px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .peer-a .peer-avatar { background: rgba(14,165,233,0.2); color: var(--blue); }
+  .peer-b .peer-avatar { background: rgba(20,184,166,0.2); color: var(--teal); }
+
+  .peer-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--white);
+  }
+  .peer-role {
+    font-size: 10px;
+    font-family: var(--mono);
+    color: var(--muted);
+    margin-top: 1px;
+  }
+
+  /* video section */
+  .video-section {
+    background: #050810;
+    position: relative;
+    flex-shrink: 0;
+    height: 140px;
+    overflow: hidden;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .video-placeholder {
+    width: 100%; height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .camera-icon {
+    font-size: 28px;
+    opacity: 0.25;
+    transition: opacity 0.5s;
+  }
+  .video-label {
+    font-size: 10px;
+    font-family: var(--mono);
+    color: var(--muted);
+  }
+  .video-section.live .camera-icon { opacity: 1; animation: cam-breathe 2s ease-in-out infinite; }
+  @keyframes cam-breathe {
+    0%,100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+  }
+
+  .video-live-badge {
+    position: absolute;
+    top: 8px; left: 8px;
+    background: var(--red);
+    color: #fff;
+    font-size: 9px;
+    font-family: var(--mono);
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 3px;
+    letter-spacing: 1px;
+    display: none;
+  }
+  .video-section.live .video-live-badge { display: block; }
+
+  /* Animated audio bars */
+  .audio-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 20px;
+    opacity: 0;
+    transition: opacity 0.5s;
+  }
+  .video-section.live .audio-bars { opacity: 1; }
+  .audio-bar {
+    width: 3px;
+    background: var(--green);
+    border-radius: 1.5px;
+    animation: bar-dance 0.8s ease-in-out infinite alternate;
+  }
+  .audio-bar:nth-child(1) { height: 40%; animation-delay: 0s; }
+  .audio-bar:nth-child(2) { height: 80%; animation-delay: 0.1s; }
+  .audio-bar:nth-child(3) { height: 60%; animation-delay: 0.2s; }
+  .audio-bar:nth-child(4) { height: 100%; animation-delay: 0.05s; }
+  .audio-bar:nth-child(5) { height: 50%; animation-delay: 0.15s; }
+  @keyframes bar-dance {
+    from { transform: scaleY(0.3); }
+    to { transform: scaleY(1); }
+  }
+
+  /* ── TABS ──────────────────────────────────────────────── */
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  .tab {
+    flex: 1;
+    padding: 8px 4px;
+    text-align: center;
+    font-size: 10px;
+    font-family: var(--mono);
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    letter-spacing: 0.5px;
+    user-select: none;
+  }
+  .tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+  .tab:hover:not(.active) { color: var(--white); }
+
+  /* ── TAB CONTENTS ──────────────────────────────────────── */
+  .tab-content {
+    flex: 1;
+    overflow: hidden;
+    display: none;
+    flex-direction: column;
+  }
+  .tab-content.active { display: flex; }
+
+  /* DOC editor */
+  .doc-editor {
+    flex: 1;
+    padding: 14px 16px;
+    background: transparent;
+    border: none;
+    color: var(--white);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.7;
+    resize: none;
+    outline: none;
+    overflow-y: auto;
+  }
+  .doc-editor::placeholder { color: var(--muted); font-style: italic; }
+  .doc-editor:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* CHAT */
+  .chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .chat-msg {
+    max-width: 85%;
+    padding: 7px 11px;
+    border-radius: 10px;
+    font-size: 12px;
+    line-height: 1.5;
+    animation: msg-in 0.2s ease-out;
+  }
+  @keyframes msg-in { from { opacity:0; transform: translateY(4px); } to { opacity:1; transform:none; } }
+  .chat-msg.sent {
+    align-self: flex-end;
+    background: rgba(14,165,233,0.2);
+    border: 1px solid rgba(14,165,233,0.3);
+    color: var(--white);
+  }
+  .chat-msg.received {
+    align-self: flex-start;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--white);
+  }
+  .msg-sender {
+    font-size: 9px;
+    font-family: var(--mono);
+    font-weight: 600;
+    margin-bottom: 2px;
+    color: var(--muted);
+  }
+
+  .chat-input-row {
+    display: flex;
+    gap: 6px;
+    padding: 10px 12px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .chat-input {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--white);
+    font-family: var(--sans);
+    font-size: 12px;
+    padding: 6px 10px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .chat-input:focus { border-color: var(--blue); }
+  .chat-input::placeholder { color: var(--muted); }
+  .chat-send {
+    padding: 6px 12px;
+    background: var(--blue);
+    border: none;
+    border-radius: 6px;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .chat-send:hover { background: #38bdf8; }
+
+  /* FILES */
+  .file-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+    gap: 10px;
+    overflow-y: auto;
+  }
+  .file-drop {
+    border: 1.5px dashed var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .file-drop:hover { border-color: var(--blue); background: rgba(14,165,233,0.04); }
+  .file-drop-icon { font-size: 22px; margin-bottom: 6px; }
+  .file-drop-text { font-size: 11px; color: var(--muted); }
+  .file-drop-text strong { color: var(--blue); }
+
+  .file-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    animation: msg-in 0.25s ease-out;
+  }
+  .file-icon { font-size: 18px; flex-shrink: 0; }
+  .file-info { flex: 1; min-width: 0; }
+  .file-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .file-size { font-size: 10px; font-family: var(--mono); color: var(--muted); margin-top: 2px; }
+  .file-progress-bar {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    margin-top: 5px;
+    overflow: hidden;
+  }
+  .file-progress-fill {
+    height: 100%;
+    background: var(--teal);
+    border-radius: 2px;
+    transition: width 0.3s ease;
+  }
+  .file-status {
+    font-size: 10px;
+    font-family: var(--mono);
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+  .file-status.done { color: var(--green); }
+  .file-hidden { display: none; }
+
+  /* AI SUMMARY */
+  .ai-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .ai-generate-btn {
+    padding: 10px;
+    background: rgba(245,158,11,0.1);
+    border: 1px solid rgba(245,158,11,0.3);
+    border-radius: 8px;
+    color: var(--amber);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.2s;
+    letter-spacing: 0.5px;
+  }
+  .ai-generate-btn:hover { background: rgba(245,158,11,0.2); }
+  .ai-thinking {
+    display: none;
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--amber);
+    align-items: center;
+    gap: 8px;
+  }
+  .ai-thinking.show { display: flex; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner { animation: spin 1s linear infinite; display: inline-block; }
+
+  .summary-block {
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .summary-block.show { display: flex; animation: msg-in 0.3s ease-out; }
+  .summary-section {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .summary-section-title {
+    font-size: 9px;
+    font-family: var(--mono);
+    font-weight: 600;
+    color: var(--amber);
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+  }
+  .summary-text {
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--white);
+  }
+  .summary-item {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin-bottom: 4px;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .summary-item::before { content: '›'; color: var(--teal); flex-shrink: 0; font-weight: bold; }
+
+  /* ── MIDDLE COLUMN ─────────────────────────────────────── */
+  .middle-col {
+    width: 260px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .mid-header {
+    padding: 10px 14px;
+    font-size: 10px;
+    font-family: var(--mono);
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: 1px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* Signal log */
+  .signal-log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .log-entry {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    font-size: 10px;
+    font-family: var(--mono);
+    line-height: 1.5;
+    padding: 4px 6px;
+    border-radius: 4px;
+    animation: msg-in 0.2s ease-out;
+  }
+  .log-time { color: var(--muted); flex-shrink: 0; }
+  .log-text { color: var(--white); }
+  .log-entry.offer .log-text { color: var(--amber); }
+  .log-entry.answer .log-text { color: var(--blue); }
+  .log-entry.ice .log-text { color: var(--purple); }
+  .log-entry.open .log-text { color: var(--green); font-weight: 600; }
+  .log-entry.data .log-text { color: #94a3b8; }
+  .log-entry.info { background: rgba(255,255,255,0.02); }
+
+  /* Stats */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 10px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .stat-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px;
+    text-align: center;
+  }
+  .stat-val {
+    font-family: var(--mono);
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--blue);
+  }
+  .stat-label {
+    font-size: 9px;
+    font-family: var(--mono);
+    color: var(--muted);
+    margin-top: 2px;
+    letter-spacing: 0.5px;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* Watermark */
+  .watermark {
+    position: fixed;
+    bottom: 8px;
+    right: 12px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: rgba(107,127,163,0.3);
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-dot"></div>
+    PeerSpace
+  </div>
+  <span class="demo-badge">LIVE DEMO</span>
+
+  <div class="status-row">
+    <div class="status-pill" id="statusPill">
+      <div class="dot"></div>
+      <span id="statusText">DISCONNECTED</span>
+    </div>
+    <button class="connect-btn" id="connectBtn" onclick="startHandshake()">
+      ⚡ Connect Peers
+    </button>
+  </div>
+</div>
+
+<!-- HANDSHAKE STAGES -->
+<div class="stage-banner">
+  <div class="stage" id="stage1">
+    <div class="step-dot">1</div>
+    OFFER SDP
+  </div>
+  <span class="stage-arrow">›</span>
+  <div class="stage" id="stage2">
+    <div class="step-dot">2</div>
+    ANSWER SDP
+  </div>
+  <span class="stage-arrow">›</span>
+  <div class="stage" id="stage3">
+    <div class="step-dot">3</div>
+    ICE EXCHANGE
+  </div>
+  <span class="stage-arrow">›</span>
+  <div class="stage" id="stage4">
+    <div class="step-dot">4</div>
+    DATACHANNEL OPEN
+  </div>
+  <span class="stage-arrow">›</span>
+  <div class="stage" id="stage5">
+    <div class="step-dot">5</div>
+    P2P LIVE
+  </div>
+</div>
+
+<!-- MAIN LAYOUT -->
+<div class="main">
+
+  <!-- PEER A -->
+  <div class="peer-panel peer-a">
+    <div class="peer-header">
+      <div class="peer-avatar">A</div>
+      <div>
+        <div class="peer-name">Peer A</div>
+        <div class="peer-role">Initiator · Researcher</div>
+      </div>
+    </div>
+
+    <div class="video-section" id="videoA">
+      <div class="video-placeholder">
+        <div class="camera-icon">🎥</div>
+        <div class="audio-bars">
+          <div class="audio-bar"></div><div class="audio-bar"></div>
+          <div class="audio-bar"></div><div class="audio-bar"></div>
+          <div class="audio-bar"></div>
+        </div>
+        <div class="video-label">VIDEO STREAM — PEER A</div>
+      </div>
+      <div class="video-live-badge">● LIVE</div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('A','doc',this)">DOC</div>
+      <div class="tab" onclick="switchTab('A','chat',this)">CHAT</div>
+      <div class="tab" onclick="switchTab('A','files',this)">FILES</div>
+      <div class="tab" onclick="switchTab('A','ai',this)">AI ✦</div>
+    </div>
+
+    <!-- DOC -->
+    <div class="tab-content active" id="tabA-doc">
+      <textarea class="doc-editor" id="docA" placeholder="Connect peers to start editing together…" disabled
+        oninput="onDocInput('A', this.value)"></textarea>
+    </div>
+
+    <!-- CHAT -->
+    <div class="tab-content" id="tabA-chat">
+      <div class="chat-messages" id="chatA"></div>
+      <div class="chat-input-row">
+        <input class="chat-input" id="chatInputA" placeholder="Type a message…" disabled
+          onkeydown="if(event.key==='Enter') sendChat('A')">
+        <button class="chat-send" onclick="sendChat('A')">→</button>
+      </div>
+    </div>
+
+    <!-- FILES -->
+    <div class="tab-content" id="tabA-files">
+      <div class="file-area" id="fileAreaA">
+        <div class="file-drop" onclick="triggerFilePick('A')">
+          <div class="file-drop-icon">📁</div>
+          <div class="file-drop-text"><strong>Click to select a file</strong><br>Transfers P2P — no server</div>
+        </div>
+        <input type="file" class="file-hidden" id="filePickA" onchange="sendFile('A', this)">
+      </div>
+    </div>
+
+    <!-- AI -->
+    <div class="tab-content" id="tabA-ai">
+      <div class="ai-area" id="aiAreaA">
+        <div class="ai-generate-btn" onclick="generateSummary('A')">🤖 Generate Meeting Summary</div>
+        <div class="ai-thinking" id="aiThinkA">
+          <span class="spinner">⟳</span> Running Whisper + BART in browser…
+        </div>
+        <div class="summary-block" id="summaryA"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MIDDLE: SIGNAL LOG -->
+  <div class="middle-col">
+    <div class="mid-header">
+      <span>⚡</span> SIGNAL LOG
+    </div>
+    <div class="signal-log" id="signalLog">
+      <div class="log-entry info">
+        <span class="log-time">00:00</span>
+        <span class="log-text">Waiting for connection…</span>
+      </div>
+    </div>
+    <div class="stats-grid">
+      <div class="stat-box">
+        <div class="stat-val" id="statMsgs">0</div>
+        <div class="stat-label">MESSAGES</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-val" id="statBytes">0B</div>
+        <div class="stat-label">TRANSFERRED</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-val" id="statRtt">—</div>
+        <div class="stat-label">LATENCY</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-val" id="statState">—</div>
+        <div class="stat-label">ICE STATE</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PEER B -->
+  <div class="peer-panel peer-b">
+    <div class="peer-header">
+      <div class="peer-avatar">B</div>
+      <div>
+        <div class="peer-name">Peer B</div>
+        <div class="peer-role">Responder · Researcher</div>
+      </div>
+    </div>
+
+    <div class="video-section" id="videoB">
+      <div class="video-placeholder">
+        <div class="camera-icon">🎥</div>
+        <div class="audio-bars">
+          <div class="audio-bar"></div><div class="audio-bar"></div>
+          <div class="audio-bar"></div><div class="audio-bar"></div>
+          <div class="audio-bar"></div>
+        </div>
+        <div class="video-label">VIDEO STREAM — PEER B</div>
+      </div>
+      <div class="video-live-badge">● LIVE</div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('B','doc',this)">DOC</div>
+      <div class="tab" onclick="switchTab('B','chat',this)">CHAT</div>
+      <div class="tab" onclick="switchTab('B','files',this)">FILES</div>
+      <div class="tab" onclick="switchTab('B','ai',this)">AI ✦</div>
+    </div>
+
+    <!-- DOC -->
+    <div class="tab-content active" id="tabB-doc">
+      <textarea class="doc-editor" id="docB" placeholder="Waiting for connection…" disabled
+        oninput="onDocInput('B', this.value)"></textarea>
+    </div>
+
+    <!-- CHAT -->
+    <div class="tab-content" id="tabB-chat">
+      <div class="chat-messages" id="chatB"></div>
+      <div class="chat-input-row">
+        <input class="chat-input" id="chatInputB" placeholder="Type a message…" disabled
+          onkeydown="if(event.key==='Enter') sendChat('B')">
+        <button class="chat-send" onclick="sendChat('B')">→</button>
+      </div>
+    </div>
+
+    <!-- FILES -->
+    <div class="tab-content" id="tabB-files">
+      <div class="file-area" id="fileAreaB">
+        <div class="file-drop" onclick="triggerFilePick('B')">
+          <div class="file-drop-icon">📁</div>
+          <div class="file-drop-text"><strong>Click to select a file</strong><br>Transfers P2P — no server</div>
+        </div>
+        <input type="file" class="file-hidden" id="filePickB" onchange="sendFile('B', this)">
+      </div>
+    </div>
+
+    <!-- AI -->
+    <div class="tab-content" id="tabB-ai">
+      <div class="ai-area" id="aiAreaB">
+        <div class="ai-generate-btn" onclick="generateSummary('B')">🤖 Generate Meeting Summary</div>
+        <div class="ai-thinking" id="aiThinkB">
+          <span class="spinner">⟳</span> Running Whisper + BART in browser…
+        </div>
+        <div class="summary-block" id="summaryB"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="watermark">PeerSpace Demo — WebRTC P2P</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════════════
+let pcA = null, pcB = null;
+let dcAtoB = null, dcBtoA = null;  // DataChannels
+let dcChatA = null, dcChatB = null;
+let dcFileA = null, dcFileB = null;
+let connected = false;
+let msgCount = 0, byteCount = 0;
+let startTime = null;
+
+// ── File transfer state
+const fileChunks = { A: {}, B: {} };
+const CHUNK_SIZE = 64 * 1024; // 64 KB
+
+// ══════════════════════════════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════════════════════════════
+function ts() {
+  if (!startTime) return '00:00';
+  const d = Math.floor((Date.now() - startTime) / 1000);
+  return `${String(Math.floor(d/60)).padStart(2,'0')}:${String(d%60).padStart(2,'0')}`;
+}
+
+function log(msg, type='info') {
+  const el = document.getElementById('signalLog');
+  const div = document.createElement('div');
+  div.className = `log-entry ${type}`;
+  div.innerHTML = `<span class="log-time">${ts()}</span><span class="log-text">${msg}</span>`;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+function setStage(n, state) {
+  document.getElementById('stage'+n).className = 'stage ' + state;
+}
+
+function updateStats() {
+  document.getElementById('statMsgs').textContent = msgCount;
+  const b = byteCount;
+  document.getElementById('statBytes').textContent =
+    b > 1024*1024 ? (b/(1024*1024)).toFixed(1)+'MB' :
+    b > 1024 ? (b/1024).toFixed(1)+'KB' : b+'B';
+}
+
+function fmtBytes(b) {
+  return b > 1024*1024 ? (b/(1024*1024)).toFixed(1)+' MB' :
+         b > 1024 ? (b/1024).toFixed(0)+' KB' : b+' B';
+}
+
+// ══════════════════════════════════════════════════════════════════
+// WEBRTC HANDSHAKE
+// ══════════════════════════════════════════════════════════════════
+async function startHandshake() {
+  const btn = document.getElementById('connectBtn');
+  btn.disabled = true;
+  btn.textContent = 'Connecting…';
+  startTime = Date.now();
+
+  document.getElementById('signalLog').innerHTML = '';
+  log('Initialising RTCPeerConnection for Peer A…');
+  log('Initialising RTCPeerConnection for Peer B…');
+
+  const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+  pcA = new RTCPeerConnection(config);
+  pcB = new RTCPeerConnection(config);
+
+  // ── Create DataChannels on A (Doc, Chat, File)
+  dcAtoB = pcA.createDataChannel('doc', { ordered: true });
+  dcChatA = pcA.createDataChannel('chat', { ordered: true });
+  dcFileA = pcA.createDataChannel('file', { ordered: true });
+
+  // ── A receives channels from B
+  pcB.ondatachannel = (e) => {
+    if (e.channel.label === 'doc') {
+      dcBtoA = e.channel;
+      dcBtoA.onmessage = (ev) => receiveDoc('B', ev.data);
+    }
+    if (e.channel.label === 'chat') {
+      dcChatB = e.channel;
+      dcChatB.onmessage = (ev) => receiveChatMsg('B', ev.data);
+    }
+    if (e.channel.label === 'file') {
+      dcFileB = e.channel;
+      setupFileReceiver('B', dcFileB);
+    }
+  };
+
+  // ── Channel open handlers (A's side)
+  dcAtoB.onopen = () => {
+    log('DataChannel [doc] OPEN — P2P live!', 'open');
+    setStage(4, 'done'); setStage(5, 'active');
+    onChannelOpen();
+  };
+  dcAtoB.onmessage = (ev) => receiveDoc('A', ev.data);
+
+  // ── ICE candidates: wire directly (simulates signaling server relay)
+  pcA.onicecandidate = (e) => {
+    if (e.candidate) {
+      log(`ICE candidate A → B (${e.candidate.type})`, 'ice');
+      pcB.addIceCandidate(e.candidate);
+    }
+  };
+  pcB.onicecandidate = (e) => {
+    if (e.candidate) {
+      log(`ICE candidate B → A (${e.candidate.type})`, 'ice');
+      pcA.addIceCandidate(e.candidate);
+    }
+  };
+
+  // ICE state tracking
+  pcA.oniceconnectionstatechange = () => {
+    document.getElementById('statState').textContent =
+      pcA.iceConnectionState.toUpperCase().slice(0,4);
+  };
+
+  // ── STAGE 1: Create Offer
+  log('Creating SDP Offer…');
+  setStage(1, 'active');
+  const offer = await pcA.createOffer();
+  await pcA.setLocalDescription(offer);
+  log(`Offer SDP created (${offer.sdp.length} bytes) → signaling relay`, 'offer');
+  setStage(1, 'done'); setStage(2, 'active');
+
+  // ── STAGE 2: Set remote on B, create Answer
+  await pcB.setRemoteDescription(offer);
+  log('Offer received by Peer B. Creating Answer…');
+  const answer = await pcB.createAnswer();
+  await pcB.setLocalDescription(answer);
+  log(`Answer SDP created (${answer.sdp.length} bytes) → signaling relay`, 'answer');
+  setStage(2, 'done'); setStage(3, 'active');
+
+  // ── STAGE 3: Set remote on A
+  await pcA.setRemoteDescription(answer);
+  log('Answer received by Peer A. ICE gathering begins…');
+}
+
+function onChannelOpen() {
+  connected = true;
+  setStage(5, 'done');
+
+  // Enable UI
+  ['docA','docB'].forEach(id => {
+    document.getElementById(id).disabled = false;
+    document.getElementById(id).placeholder = 'Start typing — syncs in real-time…';
+  });
+  ['chatInputA','chatInputB'].forEach(id => {
+    document.getElementById(id).disabled = false;
+  });
+
+  // Status bar
+  document.getElementById('statusPill').classList.add('connected');
+  document.getElementById('statusText').textContent = 'CONNECTED · P2P';
+  document.getElementById('connectBtn').textContent = '✓ Connected';
+
+  // Video badges
+  document.getElementById('videoA').classList.add('live');
+  document.getElementById('videoB').classList.add('live');
+
+  // RTT probe
+  startRttProbe();
+
+  log('═══ SESSION LIVE — all data P2P ═══', 'open');
+
+  // Auto demo message
+  setTimeout(() => {
+    document.getElementById('docA').value = '';
+    simulateTyping('A', 'PeerSpace Demo\n\nThis document is syncing directly between\nPeer A and Peer B via WebRTC DataChannel.\n\nNo server sees this text — ever.\n\nTry editing from either side ↓');
+  }, 600);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// DOCUMENT SYNC
+// ══════════════════════════════════════════════════════════════════
+let sending = false;
+
+function onDocInput(peer, value) {
+  if (sending) return;
+  sending = true;
+  const payload = JSON.stringify({ type: 'doc', text: value });
+  if (peer === 'A' && dcAtoB && dcAtoB.readyState === 'open') {
+    dcAtoB.send(payload);
+    msgCount++; byteCount += payload.length;
+    updateStats();
+  } else if (peer === 'B' && dcBtoA && dcBtoA.readyState === 'open') {
+    dcBtoA.send(payload);
+    msgCount++; byteCount += payload.length;
+    updateStats();
+  }
+  sending = false;
+}
+
+function receiveDoc(peer, data) {
+  const msg = JSON.parse(data);
+  if (msg.type !== 'doc') return;
+  const target = peer === 'A' ? 'docB' : 'docA'; // A receives → update B's view
+  // A's channel gets B's messages, B's channel gets A's messages
+  const tgt = peer === 'A' ? 'docA' : 'docB';
+  const el = document.getElementById(tgt);
+  if (document.activeElement !== el) {
+    el.value = msg.text;
+  }
+  log(`doc sync (${msg.text.length} chars)`, 'data');
+}
+
+function simulateTyping(peer, text) {
+  const el = document.getElementById('doc'+peer);
+  let i = 0;
+  const interval = setInterval(() => {
+    el.value = text.slice(0, i+1);
+    onDocInput(peer, el.value);
+    i++;
+    if (i >= text.length) clearInterval(interval);
+  }, 18);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// CHAT
+// ══════════════════════════════════════════════════════════════════
+function sendChat(peer) {
+  const input = document.getElementById('chatInput'+peer);
+  const text = input.value.trim();
+  if (!text || !connected) return;
+  input.value = '';
+
+  const payload = JSON.stringify({ type: 'chat', text, from: 'Peer '+peer });
+  appendChatMsg(peer, text, 'sent', 'Peer '+peer);
+
+  if (peer === 'A' && dcChatA && dcChatA.readyState === 'open') {
+    dcChatA.send(payload);
+    msgCount++; byteCount += payload.length;
+  } else if (peer === 'B' && dcChatB && dcChatB.readyState === 'open') {
+    dcChatB.send(payload);
+    msgCount++; byteCount += payload.length;
+  }
+  updateStats();
+  log(`chat from Peer ${peer}`, 'data');
+}
+
+function receiveChatMsg(peer, data) {
+  const msg = JSON.parse(data);
+  if (msg.type !== 'chat') return;
+  // peer is the receiving end's label (the channel that got the message)
+  const displayIn = peer === 'A' ? 'B' : 'A'; // A's datachannel = B sees it
+  appendChatMsg(peer === 'A' ? 'B' : 'A', msg.text, 'received', msg.from);
+}
+
+function appendChatMsg(side, text, direction, sender) {
+  const container = document.getElementById('chat'+side);
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + direction;
+  div.innerHTML = `<div class="msg-sender">${sender}</div>${text}`;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+
+  // Mirror to other side as received
+  if (direction === 'sent') {
+    const other = side === 'A' ? 'B' : 'A';
+    // will come via datachannel, handled by receiveChatMsg
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// FILE TRANSFER
+// ══════════════════════════════════════════════════════════════════
+function triggerFilePick(peer) {
+  if (!connected) { alert('Connect peers first!'); return; }
+  document.getElementById('filePick'+peer).click();
+}
+
+async function sendFile(peer, input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';
+
+  const dc = peer === 'A' ? dcFileA : dcFileB;
+  if (!dc || dc.readyState !== 'open') return;
+
+  const fileId = Date.now().toString();
+  const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+  // Add UI card on sender side
+  const itemId = 'file-'+fileId;
+  addFileCard(peer, itemId, file.name, file.size, 'SENDING');
+
+  // Send metadata
+  dc.send(JSON.stringify({ type: 'file-meta', fileId, name: file.name, size: file.size, totalChunks }));
+
+  const buffer = await file.arrayBuffer();
+  let sent = 0;
+
+  for (let i = 0; i < totalChunks; i++) {
+    const chunk = buffer.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+    // Wrap in header
+    const header = JSON.stringify({ type: 'file-chunk', fileId, index: i, totalChunks });
+    const headerBytes = new TextEncoder().encode(header + '\n');
+    const combined = new Uint8Array(headerBytes.length + chunk.byteLength);
+    combined.set(headerBytes, 0);
+    combined.set(new Uint8Array(chunk), headerBytes.length);
+    dc.send(combined.buffer);
+
+    sent += chunk.byteLength;
+    byteCount += chunk.byteLength; msgCount++;
+    updateStats();
+    updateFileProgress(peer, itemId, sent / file.size);
+    log(`file chunk ${i+1}/${totalChunks} (${file.name})`, 'data');
+
+    await new Promise(r => setTimeout(r, 8));
+  }
+
+  dc.send(JSON.stringify({ type: 'file-done', fileId }));
+  markFileDone(peer, itemId);
+  log(`File sent: ${file.name} (${fmtBytes(file.size)})`, 'open');
+}
+
+function setupFileReceiver(peer, dc) {
+  const receiving = {};
+  dc.onmessage = (ev) => {
+    if (typeof ev.data === 'string') {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === 'file-meta') {
+        receiving[msg.fileId] = { name: msg.name, size: msg.size, total: msg.totalChunks, chunks: [], received: 0 };
+        const itemId = 'file-recv-'+msg.fileId;
+        addFileCard(peer, itemId, msg.name, msg.size, 'RECEIVING');
+        receiving[msg.fileId].itemId = itemId;
+      } else if (msg.type === 'file-done') {
+        const f = receiving[msg.fileId];
+        if (!f) return;
+        // Reassemble
+        const blob = new Blob(f.chunks);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = f.name; a.click();
+        markFileDone(peer, f.itemId);
+        log(`File received & downloaded: ${f.name}`, 'open');
+      }
+    } else {
+      // Binary chunk
+      const bytes = new Uint8Array(ev.data);
+      const nl = bytes.indexOf(10); // \n
+      const header = new TextDecoder().decode(bytes.slice(0, nl));
+      const chunk = bytes.slice(nl + 1);
+      const msg = JSON.parse(header);
+      if (msg.type === 'file-chunk') {
+        const f = receiving[msg.fileId];
+        if (!f) return;
+        f.chunks[msg.index] = chunk;
+        f.received += chunk.byteLength;
+        updateFileProgress(peer, f.itemId, f.received / f.size);
+      }
+    }
+  };
+}
+
+function addFileCard(peer, itemId, name, size, status) {
+  const area = document.getElementById('fileArea'+peer);
+  const div = document.createElement('div');
+  div.className = 'file-item';
+  div.id = itemId;
+  const ext = name.split('.').pop().toLowerCase();
+  const icon = ext === 'pdf' ? '📄' : ext === 'png'||ext==='jpg' ? '🖼️' : ext === 'zip' ? '🗜️' : '📦';
+  div.innerHTML = `
+    <div class="file-icon">${icon}</div>
+    <div class="file-info">
+      <div class="file-name">${name}</div>
+      <div class="file-size">${fmtBytes(size)}</div>
+      <div class="file-progress-bar"><div class="file-progress-fill" id="prog-${itemId}" style="width:0%"></div></div>
+    </div>
+    <div class="file-status" id="stat-${itemId}">${status}</div>
+  `;
+  area.appendChild(div);
+}
+
+function updateFileProgress(peer, itemId, ratio) {
+  const el = document.getElementById('prog-'+itemId);
+  if (el) el.style.width = (ratio*100).toFixed(0)+'%';
+}
+
+function markFileDone(peer, itemId) {
+  const el = document.getElementById('stat-'+itemId);
+  if (el) { el.textContent = 'DONE'; el.className = 'file-status done'; }
+  const prog = document.getElementById('prog-'+itemId);
+  if (prog) { prog.style.width = '100%'; prog.style.background = 'var(--green)'; }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// AI SUMMARY (mock with realistic output)
+// ══════════════════════════════════════════════════════════════════
+function generateSummary(peer) {
+  if (!connected) { alert('Connect peers and collaborate first!'); return; }
+  const thinking = document.getElementById('aiThink'+peer);
+  const summary = document.getElementById('summary'+peer);
+  const btn = document.querySelector(`#tabA-ai .ai-generate-btn, #tabB-ai .ai-generate-btn`);
+
+  thinking.classList.add('show');
+  summary.classList.remove('show');
+
+  const docText = document.getElementById('doc'+peer).value;
+
+  setTimeout(() => {
+    thinking.classList.remove('show');
+    summary.classList.add('show');
+
+    summary.innerHTML = `
+      <div class="summary-section">
+        <div class="summary-section-title">📋 MEETING SUMMARY</div>
+        <div class="summary-text">Real-time P2P collaboration session between Peer A and Peer B. Document co-authored using WebRTC DataChannel with Yjs CRDT conflict resolution. Session ran without any server touching the document content.</div>
+      </div>
+      <div class="summary-section">
+        <div class="summary-section-title">✅ KEY DECISIONS</div>
+        <div class="summary-item">Use full-mesh WebRTC for sessions up to 5 peers.</div>
+        <div class="summary-item">Transformers.js for in-browser AI — no cloud API required.</div>
+        <div class="summary-item">Yjs CRDT for conflict-free document sync over DataChannel.</div>
+      </div>
+      <div class="summary-section">
+        <div class="summary-section-title">📌 ACTION ITEMS</div>
+        <div class="summary-item">Integrate TURN server fallback for restricted networks.</div>
+        <div class="summary-item">Complete chunked file transfer integrity verification.</div>
+        <div class="summary-item">Add progressive model loading for Whisper WASM.</div>
+      </div>
+      <div class="summary-section">
+        <div class="summary-section-title">🤖 MODEL INFO</div>
+        <div class="summary-text" style="font-family:var(--mono);font-size:10px;color:var(--muted)">
+          Transcription: whisper-tiny.en · WASM · 39MB<br>
+          Summarisation: BART-large-CNN · WASM · 1.6GB<br>
+          Inference time: ~2.3s · Device: local CPU<br>
+          Data sent to cloud: <strong style="color:var(--green)">0 bytes</strong>
+        </div>
+      </div>
+    `;
+
+    log('AI summary generated (local inference)', 'open');
+  }, 2800);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// RTT PROBE
+// ══════════════════════════════════════════════════════════════════
+function startRttProbe() {
+  setInterval(async () => {
+    if (!pcA) return;
+    try {
+      const stats = await pcA.getStats();
+      stats.forEach(s => {
+        if (s.type === 'candidate-pair' && s.state === 'succeeded') {
+          const rtt = s.currentRoundTripTime;
+          if (rtt !== undefined) {
+            document.getElementById('statRtt').textContent = Math.round(rtt*1000)+'ms';
+          }
+        }
+      });
+    } catch(e){}
+  }, 2000);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// UI TABS
+// ══════════════════════════════════════════════════════════════════
+function switchTab(peer, tab, el) {
+  const panel = el.closest('.peer-panel');
+  panel.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  panel.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('tab'+peer+'-'+tab).classList.add('active');
+}
+</script>
+</body>
+</html>

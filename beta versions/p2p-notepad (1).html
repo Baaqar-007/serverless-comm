@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>P2P Notepad Demo</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'JetBrains Mono', monospace;
+    background: #0f1117;
+    color: #c9d1e0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 20px;
+    gap: 24px;
+  }
+
+  h1 {
+    font-size: 15px;
+    font-weight: 600;
+    color: #e8edf5;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    opacity: 0.8;
+  }
+
+  /* ── Two Peers Layout ── */
+  .peers {
+    display: grid;
+    grid-template-columns: 1fr 200px 1fr;
+    gap: 0;
+    width: 100%;
+    max-width: 900px;
+    align-items: start;
+  }
+
+  /* ── Peer Card ── */
+  .peer {
+    border: 1px solid #1e2433;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #13161f;
+  }
+
+  .peer-header {
+    padding: 10px 16px;
+    background: #0f1117;
+    border-bottom: 1px solid #1e2433;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: #6b7591;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .peer-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #2a3045;
+    transition: background 0.4s;
+  }
+  .peer-dot.connected { background: #3dffa0; box-shadow: 0 0 6px #3dffa066; animation: blink 2s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+  textarea {
+    display: block;
+    width: 100%;
+    height: 180px;
+    padding: 14px;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #dce3f0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    resize: none;
+    caret-color: #3d8bff;
+  }
+  textarea:disabled { opacity: 0.35; cursor: not-allowed; }
+  textarea::placeholder { color: #3a4158; }
+
+  /* ── Middle handshake column ── */
+  .middle {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 8px;
+  }
+
+  /* Connect button */
+  #connectBtn {
+    padding: 10px 18px;
+    background: #1a2540;
+    border: 1px solid #3d8bff;
+    border-radius: 8px;
+    color: #3d8bff;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  #connectBtn:hover { background: #1f2e50; }
+  #connectBtn:disabled { opacity: 0.4; cursor: default; }
+
+  /* Handshake steps */
+  .steps {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    width: 100%;
+  }
+
+  .hs-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    width: 100%;
+    opacity: 0.25;
+    transition: opacity 0.4s;
+  }
+  .hs-step.active { opacity: 1; }
+  .hs-step.done { opacity: 0.7; }
+
+  .hs-label {
+    font-size: 9px;
+    letter-spacing: 0.5px;
+    text-align: center;
+    padding: 4px 6px;
+    border-radius: 4px;
+    background: #0f1117;
+    border: 1px solid #1e2433;
+    color: #6b7591;
+    width: 100%;
+    transition: all 0.3s;
+  }
+  .hs-step.active .hs-label { color: #ffcb3d; border-color: #ffcb3d55; background: #1e1900; }
+  .hs-step.done .hs-label  { color: #3dffa0; border-color: #3dffa055; background: #001e12; }
+
+  .hs-arrow {
+    font-size: 10px;
+    color: #2a3045;
+    line-height: 1.2;
+    transition: color 0.3s;
+    padding: 2px 0;
+  }
+  .hs-step.active .hs-arrow { color: #ffcb3d88; }
+  .hs-step.done .hs-arrow  { color: #3dffa066; }
+
+  /* ── Log ── */
+  .log-wrap {
+    width: 100%;
+    max-width: 900px;
+    border: 1px solid #1e2433;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #0d0f14;
+  }
+
+  .log-header {
+    padding: 8px 14px;
+    border-bottom: 1px solid #1e2433;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: #3a4158;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .log-list {
+    height: 160px;
+    overflow-y: auto;
+    padding: 6px 0;
+  }
+
+  .log-row {
+    display: flex;
+    gap: 10px;
+    padding: 2px 14px;
+    font-size: 10px;
+    line-height: 1.6;
+    animation: fadeUp 0.25s ease;
+    border-left: 2px solid transparent;
+  }
+  @keyframes fadeUp { from{opacity:0;transform:translateY(4px)} to{opacity:1} }
+
+  .log-row.info    { border-color: #3d8bff44; }
+  .log-row.success { border-color: #3dffa044; }
+  .log-row.warn    { border-color: #ffcb3d44; }
+  .log-row.error   { border-color: #ff5f5f44; }
+
+  .log-t { color: #3a4158; flex-shrink: 0; }
+  .log-tag {
+    flex-shrink: 0;
+    font-weight: 600;
+    font-size: 9px;
+    width: 38px;
+    padding-top: 1px;
+  }
+  .log-row.info    .log-tag { color: #3d8bff; }
+  .log-row.success .log-tag { color: #3dffa0; }
+  .log-row.warn    .log-tag { color: #ffcb3d; }
+  .log-row.error   .log-tag { color: #ff5f5f; }
+  .log-msg { color: #8891a8; }
+
+  ::-webkit-scrollbar { width: 3px; }
+  ::-webkit-scrollbar-thumb { background: #1e2433; }
+
+  .reset-btn {
+    background: none; border: none; cursor: pointer;
+    color: #3a4158; font-family: inherit; font-size: 10px;
+    padding: 2px 6px; border-radius: 4px;
+  }
+  .reset-btn:hover { color: #ff5f5f; background: #1a0808; }
+
+  .status-bar {
+    font-size: 10px;
+    color: #3a4158;
+    text-align: center;
+    letter-spacing: 0.5px;
+    height: 16px;
+    transition: color 0.3s;
+  }
+  .status-bar.ok { color: #3dffa0; }
+  .status-bar.busy { color: #ffcb3d; }
+</style>
+</head>
+<body>
+
+<h1>P2P Notepad — WebRTC Demo</h1>
+
+<!-- Two peers + handshake visualization in the middle -->
+<div class="peers">
+
+  <!-- Peer A -->
+  <div class="peer">
+    <div class="peer-header">
+      <div class="peer-dot" id="dotA"></div>
+      PEER A
+    </div>
+    <textarea id="padA" placeholder="Connect first, then type here…" disabled></textarea>
+  </div>
+
+  <!-- Middle: handshake controls & steps -->
+  <div class="middle">
+    <button id="connectBtn" onclick="connect()">▶ Connect</button>
+    <div class="steps">
+      <div class="hs-step" id="s1"><div class="hs-label">① Offer SDP</div><div class="hs-arrow">↓</div></div>
+      <div class="hs-step" id="s2"><div class="hs-label">② Answer SDP</div><div class="hs-arrow">↓</div></div>
+      <div class="hs-step" id="s3"><div class="hs-label">③ ICE Exchange</div><div class="hs-arrow">↓</div></div>
+      <div class="hs-step" id="s4"><div class="hs-label">④ Channel Open</div></div>
+    </div>
+    <div class="status-bar" id="statusBar">idle</div>
+  </div>
+
+  <!-- Peer B -->
+  <div class="peer">
+    <div class="peer-header">
+      <div class="peer-dot" id="dotB"></div>
+      PEER B
+    </div>
+    <textarea id="padB" placeholder="Connect first, then type here…" disabled></textarea>
+  </div>
+
+</div>
+
+<!-- Event Log -->
+<div class="log-wrap">
+  <div class="log-header">
+    <span>EVENT LOG</span>
+    <button class="reset-btn" onclick="reset()">↺ Reset</button>
+  </div>
+  <div class="log-list" id="logList"></div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────
+let pcA, pcB, dcA, dcB;
+let sending = false; // prevent echo loops
+
+const STUN = [{ urls: 'stun:stun.l.google.com:19302' }];
+
+// ── Logging ────────────────────────────────────────────────────────
+function log(level, msg) {
+  const list = document.getElementById('logList');
+  const t = new Date().toTimeString().slice(0, 8);
+  const tags = { info: 'INFO', success: 'DONE', warn: 'WARN', error: 'ERR!' };
+  list.insertAdjacentHTML('beforeend', `
+    <div class="log-row ${level}">
+      <span class="log-t">${t}</span>
+      <span class="log-tag">${tags[level]}</span>
+      <span class="log-msg">${msg}</span>
+    </div>`);
+  list.scrollTop = list.scrollHeight;
+}
+
+function status(msg, cls) {
+  const el = document.getElementById('statusBar');
+  el.textContent = msg;
+  el.className = 'status-bar ' + (cls || '');
+}
+
+function step(n, state) {
+  document.getElementById('s' + n).className = 'hs-step ' + state;
+}
+
+function setConnected() {
+  ['dotA', 'dotB'].forEach(id => document.getElementById(id).className = 'peer-dot connected');
+  ['padA', 'padB'].forEach(id => { document.getElementById(id).disabled = false; });
+  document.getElementById('connectBtn').disabled = true;
+  status('connected', 'ok');
+}
+
+// ── Connect — fully in-memory signaling ────────────────────────────
+async function connect() {
+  document.getElementById('connectBtn').disabled = true;
+  status('handshaking…', 'busy');
+  log('info', 'Starting WebRTC handshake between Peer A and Peer B');
+
+  // 1. Create both PeerConnections
+  pcA = new RTCPeerConnection({ iceServers: STUN });
+  pcB = new RTCPeerConnection({ iceServers: STUN });
+  log('info', 'RTCPeerConnection created for A and B');
+
+  // Wire ICE: each peer's candidates go straight to the other
+  pcA.onicecandidate = e => { if (e.candidate) { pcB.addIceCandidate(e.candidate); log('info', `ICE A→B: ${e.candidate.type}`); } };
+  pcB.onicecandidate = e => { if (e.candidate) { pcA.addIceCandidate(e.candidate); log('info', `ICE B→A: ${e.candidate.type}`); } };
+
+  // B receives the data channel opened by A
+  pcB.ondatachannel = e => {
+    dcB = e.channel;
+    wireChannel(dcB, 'B', 'padB', 'padA');
+    log('success', 'Peer B received DataChannel');
+  };
+
+  // 2. A creates a DataChannel + Offer
+  step(1, 'active');
+  dcA = pcA.createDataChannel('notepad');
+  wireChannel(dcA, 'A', 'padA', 'padB');
+
+  const offer = await pcA.createOffer();
+  await pcA.setLocalDescription(offer);
+  log('info', 'Peer A created Offer SDP');
+  step(1, 'done'); step(2, 'active');
+
+  // 3. B receives Offer, creates Answer
+  await pcB.setRemoteDescription(pcA.localDescription);
+  const answer = await pcB.createAnswer();
+  await pcB.setLocalDescription(answer);
+  log('info', 'Peer B created Answer SDP');
+  step(2, 'done'); step(3, 'active');
+
+  // 4. A receives Answer — ICE negotiation begins automatically
+  await pcA.setRemoteDescription(pcB.localDescription);
+  log('success', 'SDP exchange complete — ICE negotiating…');
+  step(3, 'done'); step(4, 'active');
+}
+
+// ── Wire up a DataChannel ──────────────────────────────────────────
+function wireChannel(ch, name, myPad, theirPad) {
+  ch.onopen = () => {
+    log('success', `DataChannel open on Peer ${name} — ready!`);
+    step(4, 'done');
+    setConnected();
+  };
+  ch.onclose  = () => log('warn',  `DataChannel closed on Peer ${name}`);
+  ch.onerror  = e  => log('error', `DataChannel error on Peer ${name}: ${e.error?.message || 'unknown'}`);
+  ch.onmessage = e => {
+    sending = true;
+    document.getElementById(myPad).value = e.data;
+    sending = false;
+  };
+
+  // Send on input from MY pad
+  document.getElementById(myPad).addEventListener('input', () => {
+    if (sending || ch.readyState !== 'open') return;
+    try {
+      ch.send(document.getElementById(myPad).value);
+    } catch(err) {
+      log('error', `Send failed (Peer ${name}): ${err.message}`);
+    }
+  });
+}
+
+// ── Reset ──────────────────────────────────────────────────────────
+function reset() {
+  [pcA, pcB].forEach(pc => pc?.close());
+  pcA = pcB = dcA = dcB = null;
+
+  ['padA','padB'].forEach(id => { const el = document.getElementById(id); el.value = ''; el.disabled = true; });
+  ['dotA','dotB'].forEach(id => document.getElementById(id).className = 'peer-dot');
+  ['s1','s2','s3','s4'].forEach(id => document.getElementById(id).className = 'hs-step');
+  document.getElementById('connectBtn').disabled = false;
+  document.getElementById('logList').innerHTML = '';
+  status('idle');
+  log('warn', 'Reset — all connections closed');
+}
+
+// ── Init ───────────────────────────────────────────────────────────
+log('info', 'P2P Notepad loaded. Click "Connect" to start the WebRTC handshake.');
+</script>
+</body>
+</html>
