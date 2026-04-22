@@ -5,15 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>PeerSpace</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
   <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+
 </head>
 <body>
-<div class="shell">
+<div class="env-orb orb-sun"></div>
+<div class="env-orb orb-leaf"></div>
+<div class="env-orb orb-sky"></div>
 
-  <!-- ── TOPBAR ─────────────────────────────────────────────── -->
-  <header class="topbar">
+<div class="shell">
+  <header class="topbar glass-3d">
     <div class="logo">
       <span class="logo-dot"></span>PeerSpace
     </div>
@@ -29,7 +32,7 @@
       <span class="sa">›</span>
       <div class="stage stage-idle" data-stage="4"><span class="sn">4</span>Channels</div>
       <span class="sa">›</span>
-      <div class="stage stage-idle" data-stage="5"><span class="sn">5</span>Live</div>
+      <div class="stage stage-idle" data-stage="5"><span class="sn">5</span>Symbiosis</div>
     </div>
 
     <div class="topbar-right">
@@ -37,92 +40,83 @@
       <button class="ctrl-btn" id="copyLink">🔗 Copy Link</button>
       <button class="ctrl-btn" id="btnMute">🎤 Mute</button>
       <button class="ctrl-btn" id="btnCam">📷 Cam Off</button>
-      <span class="status-pill status-waiting" id="statusPill">Waiting…</span>
+      <span class="status-pill status-waiting" id="statusPill">Sprouting…</span>
     </div>
   </header>
 
-  <!-- ── BODY ───────────────────────────────────────────────── -->
   <div class="body">
 
-    <!-- Left: videos + log -->
-    <aside class="left-col">
+    <aside class="left-col glass-3d">
 
-      <!-- Local video -->
-      <div class="vid-slot">
+      <div class="vid-slot inset-3d">
         <video id="localVideo" autoplay muted playsinline hidden></video>
         <div class="vid-off" id="localOff">
-          <div class="vid-icon">👤</div>
-          <div class="vid-label">YOU — NO CAMERA</div>
+          <div class="vid-icon">🌱</div>
+          <div class="vid-label">YOU — DORMANT</div>
         </div>
         <div class="vid-tag">YOU · <span id="myName2"></span></div>
       </div>
 
-      <!-- Remote video -->
-      <div class="vid-slot">
+      <div class="vid-slot inset-3d">
         <video id="remoteVideo" autoplay playsinline hidden></video>
         <div class="vid-off" id="remoteOff">
-          <div class="vid-icon">⏳</div>
-          <div class="vid-label">WAITING FOR PEER</div>
+          <div class="vid-icon">☀️</div>
+          <div class="vid-label">AWAITING PEER</div>
         </div>
         <div class="vid-tag">REMOTE</div>
       </div>
 
-      <!-- Signal log -->
       <div class="log-box">
-        <div class="log-title">⚡ SIGNAL LOG</div>
+        <div class="log-title">🌿 ROOTS SIGNAL LOG</div>
         <div class="signal-log" id="signalLog"></div>
         <div class="stats-row">
-          <div class="stat"><div class="sv" id="stat-time">00:00</div><div class="sk">SESSION</div></div>
-          <div class="stat"><div class="sv" id="stat-rtt">—</div><div class="sk">RTT</div></div>
-          <div class="stat"><div class="sv" id="stat-sent">0B</div><div class="sk">SENT</div></div>
-          <div class="stat"><div class="sv" id="stat-recv">0B</div><div class="sk">RECV</div></div>
+          <div class="stat"><div class="sv" id="stat-time">00:00</div><div class="sk">CYCLE</div></div>
+          <div class="stat"><div class="sv" id="stat-rtt">—</div><div class="sk">PULSE</div></div>
+          <div class="stat"><div class="sv" id="stat-sent">0B</div><div class="sk">OUT</div></div>
+          <div class="stat"><div class="sv" id="stat-recv">0B</div><div class="sk">IN</div></div>
           <div class="stat stat-wide"><div class="sv" id="stat-ice">—</div><div class="sk">ICE</div></div>
         </div>
       </div>
 
     </aside>
 
-    <!-- Right: tabs -->
-    <div class="right-col">
+    <div class="right-col glass-3d">
 
       <div class="tabs-bar">
-        <button class="tab active" data-tab="doc">📝 Document</button>
-        <button class="tab"        data-tab="chat">💬 Chat</button>
-        <button class="tab"        data-tab="files">📁 Files</button>
+        <button class="tab active" data-tab="doc">📝 Canvas</button>
+        <button class="tab"        data-tab="chat">💬 Frequency</button>
+        <button class="tab"        data-tab="files">📁 Matter</button>
       </div>
 
       <div class="tabs-body">
 
-        <!-- DOC -->
         <div class="tab-pane active" data-pane="doc">
           <textarea
             id="docEditor"
             class="doc-ed"
-            placeholder="Connect to start collaborating. Edits sync live via WebRTC DataChannel — nothing touches a server."
+            placeholder="Establish connection to begin collaborative synthesis. Growth syncs seamlessly via WebRTC — completely decentralized."
             disabled
           ></textarea>
           <div class="doc-foot">
             <span>Yjs CRDT · RTCDataChannel</span>
-            <span id="docChars">0 chars</span>
+            <span id="docChars">0 nodes</span>
           </div>
         </div>
 
-        <!-- CHAT -->
         <div class="tab-pane" data-pane="chat">
           <div class="chat-msgs" id="chatMessages"></div>
           <div id="typingIndicator" class="typing-ind" hidden></div>
           <div class="chat-bar">
-            <input id="chatInput" class="chat-in" placeholder="Message — Enter to send" disabled maxlength="500"/>
+            <input id="chatInput" class="chat-in inset-3d" placeholder="Broadcast thought — Enter to pulse" disabled maxlength="500"/>
             <button id="chatSend" class="chat-btn" disabled>→</button>
           </div>
         </div>
 
-        <!-- FILES -->
         <div class="tab-pane files-pane" data-pane="files">
-          <div id="fileDropZone" class="drop-zone dz-disabled">
+          <div id="fileDropZone" class="drop-zone dz-disabled inset-3d">
             <div class="dz-inner">
-              <div class="dz-ico">📁</div>
-              <div class="dz-text"><strong>Click or drop a file</strong><br>Chunked P2P — no server upload</div>
+              <div class="dz-ico">🍃</div>
+              <div class="dz-text"><strong>Click or drop matter here</strong><br>Direct peer exchange — zero emission upload</div>
             </div>
           </div>
           <input type="file" id="filePicker" hidden>
@@ -132,10 +126,7 @@
       </div>
     </div>
 
-  </div><!-- /body -->
-</div><!-- /shell -->
-
-<script src="js/config.js"></script>
+  </div></div><script src="js/config.js"></script>
 <script src="js/signaling.js"></script>
 <script src="js/connection.js"></script>
 <script src="js/doc-sync.js"></script>
