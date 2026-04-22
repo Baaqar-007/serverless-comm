@@ -1,59 +1,37 @@
 /**
  * doc-sync.js — Document synchronisation over RTCDataChannel
  *
- * Protocol:
- *   Each change is tagged with a monotonically increasing local sequence
- *   number and a timestamp. The receiver applies the update only if the
- *   incoming sequence is strictly greater than the last seen sequence
- *   from that sender — preventing stale replays.
- *
- *   For a production system this is replaced by Yjs CRDT. For the demo
- *   this is sufficient and keeps the file dependency-free.
+ * Modified to support Quill Deltas for Operational Transformation 
+ * (prevents cursor jumping and supports complex rich text + tables).
  */
 'use strict';
 
 class DocSync {
-  /**
-   * @param {function} onRemoteUpdate - called with (text) when remote change arrives
-   */
   constructor(onRemoteUpdate) {
     this._onRemote   = onRemoteUpdate;
-    this._localSeq   = 0;
-    this._remoteSeq  = 0;
-    this._suppress   = false; // true while applying remote update
+    this._suppress   = false; 
   }
 
   /**
-   * Package a local edit for sending.
-   * @param {string} text - full document text after edit
-   * @returns {string} JSON string to send over DataChannel
+   * Package a Quill Delta edit for sending.
    */
-  pack(text) {
-    this._localSeq++;
+  pack(delta) {
     return JSON.stringify({
-      t:   'doc',
-      seq: this._localSeq,
-      txt: text,
-      ts:  Date.now(),
+      t: 'doc',
+      d: delta
     });
   }
 
   /**
-   * Handle incoming data from the remote peer.
-   * @param {string} raw - raw DataChannel message
-   * @returns {boolean} true if it was a doc message and was applied
+   * Handle incoming Delta from the remote peer.
    */
   receive(raw) {
     let msg;
     try { msg = JSON.parse(raw); } catch { return false; }
     if (msg.t !== 'doc') return false;
 
-    // Only apply if this is newer than what we've seen
-    if (msg.seq <= this._remoteSeq) return true; // stale, silently drop
-
-    this._remoteSeq = msg.seq;
     this._suppress  = true;
-    this._onRemote(msg.txt);
+    this._onRemote(msg.d);
     this._suppress  = false;
     return true;
   }

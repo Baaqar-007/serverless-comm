@@ -6,6 +6,10 @@
   <title>PeerSpace</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <link href="https://cdn.jsdelivr.net/npm/quill@2.0.0/dist/quill.snow.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/quill@2.0.0/dist/quill.js"></script>
+
   <link rel="stylesheet" href="css/style.css">
   <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
 
@@ -91,15 +95,44 @@
       <div class="tabs-body">
 
         <div class="tab-pane active" data-pane="doc">
-          <textarea
-            id="docEditor"
-            class="doc-ed"
-            placeholder="Establish connection to begin collaborative synthesis. Growth syncs seamlessly via WebRTC — completely decentralized."
-            disabled
-          ></textarea>
+          
+          <div id="docToolbar" class="glass-3d">
+            <span class="ql-formats">
+              <select class="ql-font"></select>
+              <select class="ql-size"></select>
+            </span>
+            <span class="ql-formats">
+              <button class="ql-bold"></button>
+              <button class="ql-italic"></button>
+              <button class="ql-underline"></button>
+              <button class="ql-strike"></button>
+            </span>
+            <span class="ql-formats">
+              <select class="ql-color"></select>
+              <select class="ql-background"></select>
+            </span>
+            <span class="ql-formats">
+              <select class="ql-align"></select>
+            </span>
+            <span class="ql-formats">
+              <button class="ql-list" value="ordered"></button>
+              <button class="ql-list" value="bullet"></button>
+              <button class="ql-indent" value="-1"></button>
+              <button class="ql-indent" value="+1"></button>
+            </span>
+            <span class="ql-formats">
+              <button id="btnInsertTable" title="Insert Table" class="custom-action-btn">🪟</button>
+            </span>
+            <span class="ql-formats">
+              <button id="btnExport" title="Export to Word" class="custom-action-btn">💾</button>
+            </span>
+          </div>
+          
+          <div id="docEditor" class="doc-ed inset-3d"></div>
+          
           <div class="doc-foot">
-            <span>Yjs CRDT · RTCDataChannel</span>
-            <span id="docChars">0 nodes</span>
+            <span>Quill Deltas · RTCDataChannel Sync</span>
+            <span id="docChars">0 chars</span>
           </div>
         </div>
 
