@@ -1,35 +1,33 @@
 /**
- * signaling.js — BroadcastChannel signaling
- *
- * Works across tabs/windows on the same origin (Chrome recommended).
- * The server role is played by BroadcastChannel — no backend needed.
- *
- * Message envelope:
- *   { type, from, to, ...payload }
- *   to = null  → broadcast to all peers in room
- *   to = peerId → targeted delivery
+ * signaling.js — WebSocket (Socket.io) signaling
  */
 'use strict';
 
 class Signaling {
   constructor(roomId, peerId) {
-    if (!('BroadcastChannel' in window)) {
-      throw new Error('BroadcastChannel not supported. Use Chrome or a modern browser.');
-    }
-
+    this._roomId   = roomId;
     this._peerId   = peerId;
     this._handlers = {};
-    this._channel  = new BroadcastChannel(PS.SIGNAL_CHANNEL(roomId));
 
-    this._channel.onmessage      = (e) => this._dispatch(e.data);
-    this._channel.onmessageerror = (e) => console.error('[Signaling] parse error', e);
+    // Point this to your hosted server URL in production
+    const SERVER_URL = `http://${window.location.hostname}:3000`;    
+    if (typeof io === 'undefined') {
+      throw new Error('Socket.io client library is missing.');
+    }
+
+    this._socket = io(SERVER_URL);
+
+    this._socket.on('connect', () => {
+      this._socket.emit('join-room', this._roomId);
+    });
+
+    this._socket.on('signal', (msg) => this._dispatch(msg));
+    this._socket.on('connect_error', (err) => console.error('[Signaling] connection error', err));
   }
 
   // ── Routing ────────────────────────────────────────────────────
 
   _dispatch(msg) {
-    // Ignore our own reflections (should not happen with BC, defensive)
-    if (msg.from === this._peerId) return;
     // Drop messages targeted at someone else
     if (msg.to && msg.to !== this._peerId) return;
 
@@ -39,23 +37,14 @@ class Signaling {
 
   // ── Public API ─────────────────────────────────────────────────
 
-  /**
-   * Register a handler for an incoming message type.
-   * Returns `this` for chaining.
-   */
   on(type, handler) {
     this._handlers[type] = handler;
     return this;
   }
 
-  /**
-   * Broadcast or send a targeted message.
-   * @param {string} type  - message type
-   * @param {object} data  - payload (spread into envelope)
-   * @param {string} [to]  - target peerId (null = broadcast)
-   */
   send(type, data = {}, to = null) {
-    this._channel.postMessage({
+    this._socket.emit('signal', {
+      roomId: this._roomId,
       type,
       from: this._peerId,
       to,
@@ -64,7 +53,7 @@ class Signaling {
   }
 
   destroy() {
-    this._channel.close();
+    this._socket.disconnect();
     this._handlers = {};
   }
 }
