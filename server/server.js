@@ -23,6 +23,16 @@ io.on('connection', (socket) => {
     // Broadcast the signal to everyone else in the specific room
     socket.to(data.roomId).emit('signal', data);
   });
+
+  socket.on('disconnecting', () => {
+    for (const room of socket.rooms) {
+      if (room !== socket.id) {
+        // Broadcast a leaving signal so the surviving peer knows to clean up
+        socket.to(room).emit('signal', { type: 'leaving' });
+      }
+    }
+  });
+  
 });
 
 const PORT = process.env.PORT || 3000;
