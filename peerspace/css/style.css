@@ -700,3 +700,93 @@ body {
 }
 .lobby-note strong { color: var(--green); font-weight: 800; }
 .muted-icon { font-size: 16px; vertical-align: middle; }
+
+
+/* ── Quill Word-like Editor / Solarpunk Overrides ────────────── */
+
+.doc-ed {
+  flex: 1;
+  background: var(--surf-solid) !important;
+  border: 1px solid var(--bdr-light) !important;
+  border-top: none !important;
+  border-radius: 0 0 var(--rad-md) var(--rad-md) !important;
+  color: var(--white);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.8;
+  display: flex;
+  flex-direction: column;
+}
+
+.ql-toolbar.ql-snow {
+  background: rgba(255,255,255,0.7);
+  border: 1px solid var(--bdr-light) !important;
+  border-radius: var(--rad-md) var(--rad-md) 0 0;
+  backdrop-filter: blur(12px);
+  padding: 10px !important;
+  box-shadow: 0 4px 12px rgba(19,58,39,0.05);
+}
+
+.ql-editor {
+  flex: 1;
+  padding: 24px 32px !important;
+  overflow-y: auto;
+}
+
+.ql-editor.ql-blank::before {
+  color: var(--muted) !important;
+  font-style: italic;
+  opacity: 0.6;
+}
+
+/* Solarpunk Icons & Accents */
+.ql-snow .ql-stroke { stroke: var(--muted) !important; }
+.ql-snow .ql-fill { fill: var(--muted) !important; }
+.ql-snow .ql-picker { color: var(--muted) !important; }
+.ql-snow .ql-picker-options { 
+  background: var(--surf-solid) !important; 
+  border: 1px solid var(--bdr) !important; 
+  border-radius: var(--rad-sm);
+  box-shadow: var(--shadow-glass);
+}
+
+.ql-snow .ql-active .ql-stroke,
+.ql-snow .ql-picker-label:hover .ql-stroke,
+.ql-snow button:hover .ql-stroke { stroke: var(--green) !important; }
+
+.ql-snow .ql-active .ql-fill,
+.ql-snow .ql-picker-label:hover .ql-fill,
+.ql-snow button:hover .ql-fill { fill: var(--green) !important; }
+
+.ql-snow .ql-active { color: var(--green) !important; }
+
+/* Custom Additions */
+.custom-action-btn {
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 2px 6px;
+  transition: var(--smooth);
+  opacity: 0.8;
+}
+.custom-action-btn:hover { 
+  transform: scale(1.1); 
+  opacity: 1;
+  filter: drop-shadow(0 2px 4px rgba(16,185,129,0.4)); 
+}
+
+/* Table overrides to look beautiful */
+.ql-editor table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 16px 0;
+  border: 2px solid var(--bdr-strong);
+  border-radius: var(--rad-sm);
+  overflow: hidden;
+}
+.ql-editor td, .ql-editor th {
+  border: 1px solid var(--bdr);
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.4);
+}

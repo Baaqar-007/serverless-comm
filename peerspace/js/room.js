@@ -89,11 +89,19 @@
   }
 
   // ── Peer discovery ─────────────────────────────────────────────
-  function handlePeerAnnounce({ from, name }) {
-    UI.log('"' + name + '" joined', 'ok');
-    signaling.send('announce:ack', { name: MY_NAME }, from);
-    if (MY_ID < from) initiateOffer(from);
+ function handlePeerAnnounce({ from, name }) {
+  UI.log('"' + name + '" joined', 'ok');
+  
+  // FIX: Stale session prevention. If we are already connected, 
+  // the peer likely refreshed/reconnected abruptly. Tear down old state.
+  if (conn) {
+    UI.log('Stale connection detected. Tearing down...', 'warn');
+    teardown();
   }
+
+  signaling.send('announce:ack', { name: MY_NAME }, from);
+  if (MY_ID < from) initiateOffer(from);
+}
 
   function handlePeerAck({ from, name }) {
     UI.log('"' + name + '" ready', 'ok');
@@ -121,24 +129,30 @@
     }
   }
 
-  async function handleOffer({ from, sdp }) {
-    UI.log('Offer received', 'signal');
-    UI.setStage(1, 'done');
-    UI.setStage(2, 'active');
+async function handleOffer({ from, sdp }) {
+  UI.log('Offer received', 'signal');
 
-    setConn(buildConnection(from));
-    if (localStream) conn.addStream(localStream);
-
-    try {
-      await conn.handleOffer(sdp);
-      UI.log('Answer sent', 'signal');
-      UI.setStage(2, 'done');
-      UI.setStage(3, 'active');
-    } catch (e) {
-      UI.log('Answer error: ' + e.message, 'error');
-    }
+  // FIX: Prevent overwriting an active connection reference without closing it
+  if (conn) {
+    UI.log('Incoming offer during active session. Tearing down...', 'warn');
+    teardown();
   }
 
+  UI.setStage(1, 'done');
+  UI.setStage(2, 'active');
+
+  setConn(buildConnection(from));
+  if (localStream) conn.addStream(localStream);
+
+  try {
+    await conn.handleOffer(sdp);
+    UI.log('Answer sent', 'signal');
+    UI.setStage(2, 'done');
+    UI.setStage(3, 'active');
+  } catch (e) {
+    UI.log('Answer error: ' + e.message, 'error');
+  }
+}
   async function handleAnswer({ sdp }) {
     if (!conn) return;
     try {
@@ -193,9 +207,9 @@
         UI.setStage(3, 'done');
         UI.setStage(4, 'active');
       }
-      if (state === 'failed') {
-        UI.log('ICE failed — restarting…', 'warn');
-        c.pc.restartIce();
+      if (state === 'failed' || state === 'disconnected' || state === 'closed') {
+        UI.log('WebRTC connection ' + state, 'warn');
+        handlePeerLeft(); // This will trigger teardown and re-announce
       }
     });
 
@@ -228,13 +242,16 @@
     connected    = true;
     sessionStart = Date.now();
 
-    docSync = new DocSync(text => {
-      const ed = document.getElementById('docEditor');
-      if (!ed) return;
-      const ss = ed.selectionStart, se = ed.selectionEnd;
-      ed.value = text;
-      ed.selectionStart = ss;
-      ed.selectionEnd   = se;
+    // Hook up Quill to Sync Engine
+    docSync = new DocSync(delta => {
+      UI.quill.updateContents(delta);
+    });
+
+    UI.quill.on('text-change', (delta, oldDelta, source) => {
+      if (source === 'user' && !docSync.isSuppressed) {
+        sendDoc(delta);
+      }
+      document.getElementById('docChars').textContent = (UI.quill.getLength() - 1) + ' chars';
     });
 
     chatMgr = new Chat(MY_NAME, (msg, self) => UI.renderChat(msg, self));
@@ -256,14 +273,21 @@
 
   function teardown() {
     if (statsTimer) { clearInterval(statsTimer); statsTimer = null; }
-    conn?.close();
+    
+    // FIX: Ensure safe closure of connection object
+    if (conn) {
+      conn.close();
+    }
+    
     conn         = null;
     initiating   = false;
     connected    = false;
     _pendingIceBuf = [];
     docSync = chatMgr = fileXfer = null;
+    
     UI.disableSession();
     UI.resetStages();
+    UI.setRemoteVideoOff(); // FIX: Clear frozen remote video frame
   }
 
   // ── Control channel ────────────────────────────────────────────
@@ -304,9 +328,9 @@
   }
 
   // ── Send actions ───────────────────────────────────────────────
-  function sendDoc(text) {
+  function sendDoc(delta) {
     if (!conn || !docSync || !connected) return;
-    conn.send(PS.DC.DOC, docSync.pack(text));
+    conn.send(PS.DC.DOC, docSync.pack(delta));
   }
 
   function sendChat(text) {
@@ -350,10 +374,45 @@
   // ══════════════════════════════════════════════════════════════
   const UI = {
     _typingTimer: null,
+    quill: null,
 
     init(name, roomId) {
       document.getElementById('myName').textContent   = name;
       document.getElementById('roomCode').textContent = roomId;
+
+      const icons = Quill.import('ui/icons');
+      this.quill = new Quill('#docEditor', {
+        theme: 'snow',
+        modules: {
+          table: true,
+          toolbar: '#docToolbar'
+        },
+        placeholder: 'Establish connection to begin collaborative synthesis. Growth syncs seamlessly via WebRTC...'
+      });
+      this.quill.disable();
+
+      document.getElementById('btnInsertTable').addEventListener('click', () => {
+        if (!connected) return;
+        const table = this.quill.getModule('table');
+        table.insertTable(3, 3); // Default 3x3 table
+      });
+
+      document.getElementById('btnExport').addEventListener('click', () => {
+        const html = this.quill.getSemanticHTML();
+        const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>PeerSpace Synthesis</title></head><body>";
+        const footer = "</body></html>";
+        const sourceHTML = header + html + footer;
+        
+        const source = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(sourceHTML);
+        const fileDownload = document.createElement("a");
+        document.body.appendChild(fileDownload);
+        fileDownload.href = source;
+        fileDownload.download = 'PeerSpace_Synthesis.doc';
+        fileDownload.click();
+        document.body.removeChild(fileDownload);
+        
+        this.log('Exported document as Word file', 'ok');
+      });
 
       document.getElementById('copyLink').addEventListener('click', () => {
         navigator.clipboard?.writeText(location.href).then(() => {
@@ -443,14 +502,14 @@
     },
 
     enableSession() {
-      document.getElementById('docEditor').disabled = false;
+      this.quill.enable();
       document.getElementById('chatInput').disabled = false;
       document.getElementById('chatSend').disabled  = false;
       document.getElementById('fileDropZone').classList.remove('dz-disabled');
     },
 
     disableSession() {
-      document.getElementById('docEditor').disabled = true;
+      this.quill.disable();
       document.getElementById('chatInput').disabled = true;
       document.getElementById('chatSend').disabled  = true;
       document.getElementById('fileDropZone').classList.add('dz-disabled');
