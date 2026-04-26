@@ -89,11 +89,19 @@
   }
 
   // ── Peer discovery ─────────────────────────────────────────────
-  function handlePeerAnnounce({ from, name }) {
-    UI.log('"' + name + '" joined', 'ok');
-    signaling.send('announce:ack', { name: MY_NAME }, from);
-    if (MY_ID < from) initiateOffer(from);
+ function handlePeerAnnounce({ from, name }) {
+  UI.log('"' + name + '" joined', 'ok');
+  
+  // FIX: Stale session prevention. If we are already connected, 
+  // the peer likely refreshed/reconnected abruptly. Tear down old state.
+  if (conn) {
+    UI.log('Stale connection detected. Tearing down...', 'warn');
+    teardown();
   }
+
+  signaling.send('announce:ack', { name: MY_NAME }, from);
+  if (MY_ID < from) initiateOffer(from);
+}
 
   function handlePeerAck({ from, name }) {
     UI.log('"' + name + '" ready', 'ok');
@@ -121,24 +129,30 @@
     }
   }
 
-  async function handleOffer({ from, sdp }) {
-    UI.log('Offer received', 'signal');
-    UI.setStage(1, 'done');
-    UI.setStage(2, 'active');
+async function handleOffer({ from, sdp }) {
+  UI.log('Offer received', 'signal');
 
-    setConn(buildConnection(from));
-    if (localStream) conn.addStream(localStream);
-
-    try {
-      await conn.handleOffer(sdp);
-      UI.log('Answer sent', 'signal');
-      UI.setStage(2, 'done');
-      UI.setStage(3, 'active');
-    } catch (e) {
-      UI.log('Answer error: ' + e.message, 'error');
-    }
+  // FIX: Prevent overwriting an active connection reference without closing it
+  if (conn) {
+    UI.log('Incoming offer during active session. Tearing down...', 'warn');
+    teardown();
   }
 
+  UI.setStage(1, 'done');
+  UI.setStage(2, 'active');
+
+  setConn(buildConnection(from));
+  if (localStream) conn.addStream(localStream);
+
+  try {
+    await conn.handleOffer(sdp);
+    UI.log('Answer sent', 'signal');
+    UI.setStage(2, 'done');
+    UI.setStage(3, 'active');
+  } catch (e) {
+    UI.log('Answer error: ' + e.message, 'error');
+  }
+}
   async function handleAnswer({ sdp }) {
     if (!conn) return;
     try {
@@ -193,9 +207,9 @@
         UI.setStage(3, 'done');
         UI.setStage(4, 'active');
       }
-      if (state === 'failed') {
-        UI.log('ICE failed — restarting…', 'warn');
-        c.pc.restartIce();
+      if (state === 'failed' || state === 'disconnected' || state === 'closed') {
+        UI.log('WebRTC connection ' + state, 'warn');
+        handlePeerLeft(); // This will trigger teardown and re-announce
       }
     });
 
@@ -259,14 +273,21 @@
 
   function teardown() {
     if (statsTimer) { clearInterval(statsTimer); statsTimer = null; }
-    conn?.close();
+    
+    // FIX: Ensure safe closure of connection object
+    if (conn) {
+      conn.close();
+    }
+    
     conn         = null;
     initiating   = false;
     connected    = false;
     _pendingIceBuf = [];
     docSync = chatMgr = fileXfer = null;
+    
     UI.disableSession();
     UI.resetStages();
+    UI.setRemoteVideoOff(); // FIX: Clear frozen remote video frame
   }
 
   // ── Control channel ────────────────────────────────────────────
