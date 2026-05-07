@@ -52,23 +52,23 @@
 
     <aside class="left-col glass-3d">
 
-      <div class="vid-slot inset-3d">
-        <video id="localVideo" autoplay muted playsinline hidden></video>
-        <div class="vid-off" id="localOff">
-          <div class="vid-icon">🌱</div>
-          <div class="vid-label">YOU — DORMANT</div>
-        </div>
-        <div class="vid-tag">YOU · <span id="myName2"></span></div>
-      </div>
+      <div id="videoGrid" class="inset-3d">
 
-      <div class="vid-slot inset-3d">
-        <video id="remoteVideo" autoplay playsinline hidden></video>
-        <div class="vid-off" id="remoteOff">
-          <div class="vid-icon">☀️</div>
-          <div class="vid-label">AWAITING PEER</div>
-        </div>
-        <div class="vid-tag">REMOTE</div>
-      </div>
+  <!-- Local tile — always present, always first -->
+  <div id="localTile">
+    <video id="localVideo" autoplay muted playsinline></video>
+    <div class="tile-off" id="localOff">
+      <span>🌱</span>
+      <span class="tile-name">YOU — DORMANT</span>
+    </div>
+    <div class="tile-overlay">
+      <span class="tile-name-label">You · <span id="myName2"></span></span>
+    </div>
+  </div>
+
+  <!-- Remote peer tiles injected here by UI.addPeerTile() in room.js -->
+
+</div>
 
       <div class="log-box">
         <div class="log-title">🌿 ROOTS SIGNAL LOG</div>
@@ -166,13 +166,6 @@
 <script src="js/chat.js"></script>
 <script src="js/file-transfer.js"></script>
 <script src="js/room.js"></script>
-<script>
-  // Mirror name into second tag
-  document.addEventListener('DOMContentLoaded', () => {
-    const n = new URLSearchParams(location.search).get('n') || '';
-    const el = document.getElementById('myName2');
-    if (el) el.textContent = decodeURIComponent(n);
-  });
-</script>
+
 </body>
 </html>

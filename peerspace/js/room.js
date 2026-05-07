@@ -1,13 +1,15 @@
 /**
- * room.js — Session orchestrator
+ * room.js — Session orchestrator (v4 — full mesh, up to 4 peers)
  *
- * Fix log:
- *  v2 — ICE queue in connection.js (too late; conn didn't exist yet)
- *  v3 — Room-level ICE buffer: candidates that arrive before `conn`
- *       is created are held in `_pendingIceBuf[]` and drained the
- *       moment `conn` is assigned via setConn(). Combined with
- *       connection.js's own post-setRemoteDescription drain this
- *       covers both timing gaps.
+ * Change log vs v3 (2-peer):
+ *  - Single `conn` variable replaced by `peers` Map<peerId, PeerState>
+ *  - Signaling now handles peer-list / peer-joined / peer-left
+ *  - Offer/answer determinism: lower UUID always initiates (no race)
+ *  - docSync and chatMgr are room-scoped (shared); fileXfer is per-peer
+ *  - Broadcast helpers (broadcastDoc, broadcastChat) fan out to all peers
+ *  - teardown(peerId?) closes one peer or all peers
+ *  - UI replaced: dynamic video grid (Zoom-style), per-peer mute toggles
+ *  - _pendingIceBuf is now a Map<peerId, candidate[]>
  */
 'use strict';
 
@@ -26,22 +28,27 @@
     return;
   }
 
+  // ── Peer state record ──────────────────────────────────────────
+  // One of these per remote peer in the room.
+  // {
+  //   conn       : Connection instance
+  //   name       : display name (filled in from announce/ack)
+  //   stream     : remote MediaStream (once track arrives)
+  //   fileXfer   : FileTransfer instance (per-peer; chunks are per-DC)
+  //   statsTimer : interval id
+  //   ready      : boolean — channels all open
+  // }
+
   // ── Module instances ───────────────────────────────────────────
-  let signaling  = null;
-  let conn       = null;
-  let docSync    = null;
-  let chatMgr    = null;
-  let fileXfer   = null;
+  let signaling = null;
+  let docSync   = null;   // shared across all peers
+  let chatMgr   = null;   // shared across all peers
 
   // ── Runtime state ──────────────────────────────────────────────
-  let localStream   = null;
-  let sessionStart  = null;
-  let statsTimer    = null;
-  let connected     = false;
-  let initiating    = false;
-
-  // Room-level ICE buffer
-  let _pendingIceBuf = [];
+  let localStream = null;
+  let sessionStart = null;
+  const peers = new Map();                  // peerId → PeerState
+  const _pendingIceBuf = new Map();         // peerId → candidate[]
 
   // ── Boot ───────────────────────────────────────────────────────
   document.addEventListener('DOMContentLoaded', async () => {
@@ -74,126 +81,165 @@
   function initSignaling() {
     signaling = new Signaling(ROOM_ID, MY_ID);
     signaling
-      .on('announce',     handlePeerAnnounce)
-      .on('announce:ack', handlePeerAck)
-      .on('offer',        handleOffer)
-      .on('answer',       handleAnswer)
-      .on('ice',          handleIce)
-      .on('leaving',      handlePeerLeft);
+      .on('peer-list',   handlePeerList)     // NEW: existing peers on join
+      .on('peer-joined', handlePeerJoined)   // NEW: runtime arrivals
+      .on('peer-left',   handlePeerLeft)     // NEW: runtime departures
+      .on('announce',    handlePeerAnnounce)
+      .on('announce:ack',handlePeerAck)
+      .on('offer',       handleOffer)
+      .on('answer',      handleAnswer)
+      .on('ice',         handleIce)
+      .on('room-full',   () => UI.log('Room is full (max 4 peers)', 'error'));
   }
 
   function announce() {
     signaling.send('announce', { name: MY_NAME });
-    UI.setStatus('waiting', 'Waiting for peer…');
+    UI.setStatus('waiting', 'Waiting for peers…');
     UI.log('Announced → room ' + ROOM_ID, 'info');
   }
 
   // ── Peer discovery ─────────────────────────────────────────────
- function handlePeerAnnounce({ from, name }) {
-  UI.log('"' + name + '" joined', 'ok');
-  
-  // FIX: Stale session prevention. If we are already connected, 
-  // the peer likely refreshed/reconnected abruptly. Tear down old state.
-  if (conn) {
-    UI.log('Stale connection detected. Tearing down...', 'warn');
-    teardown();
+
+  // Received on initial join: array of peerIds already in the room.
+  // For each, send an announce so they know our name and trigger handshake.
+  function handlePeerList({ peerIds }) {
+    UI.log('Room has ' + peerIds.length + ' existing peer(s)', 'info');
+    peerIds.forEach(pid => {
+      // They will respond with announce:ack; handshake follows from there.
+      signaling.send('announce', { name: MY_NAME }, pid);
+    });
   }
 
-  signaling.send('announce:ack', { name: MY_NAME }, from);
-  if (MY_ID < from) initiateOffer(from);
-}
+  // A new peer arrived after us — they will send us an announce shortly.
+  // Nothing to do here except log; we wait for their announce.
+  function handlePeerJoined({ from }) {
+    UI.log('New peer joined: ' + from.slice(0, 8), 'info');
+  }
+
+  // Handle announce from any peer (they just joined or we just joined).
+  function handlePeerAnnounce({ from, name }) {
+    if (peers.has(from)) return;              // already know this peer
+    UI.log('"' + name + '" announced', 'ok');
+
+    // Register name so we can label their tile before connection is live.
+    _ensurePeerRecord(from, name);
+
+    signaling.send('announce:ack', { name: MY_NAME }, from);
+
+    // Offer rule: lower UUID initiates — exactly one side sends the offer.
+    if (MY_ID < from) initiateOffer(from);
+  }
 
   function handlePeerAck({ from, name }) {
-    UI.log('"' + name + '" ready', 'ok');
-    if (!conn && !initiating && MY_ID < from) initiateOffer(from);
+    const p = peers.get(from);
+    if (p) p.name = name;
+    else _ensurePeerRecord(from, name);
+
+    UI.log('"' + name + '" ack', 'ok');
+
+    // Only offer if we haven't already started for this peer.
+    const peer = peers.get(from);
+    if (!peer.conn && !peer.initiating && MY_ID < from) initiateOffer(from);
   }
 
   // ── WebRTC flow ────────────────────────────────────────────────
-  async function initiateOffer(remotePeerId) {
-    if (conn || initiating) return;
-    initiating = true;
-    UI.setStage(1, 'active');
-    UI.log('Creating offer…', 'signal');
 
-    setConn(buildConnection(remotePeerId));
-    if (localStream) conn.addStream(localStream);
+  async function initiateOffer(remotePeerId) {
+    const peer = peers.get(remotePeerId);
+    if (!peer || peer.conn || peer.initiating) return;
+    peer.initiating = true;
+
+    UI.setStatus('connecting', 'Connecting to ' + (peer.name || remotePeerId.slice(0,8)) + '…');
+    UI.log('Creating offer → ' + remotePeerId.slice(0,8), 'signal');
+
+    const c = buildConnection(remotePeerId);
+    _setPeerConn(remotePeerId, c);
+    if (localStream) c.addStream(localStream);
 
     try {
-      await conn.offer();
-      UI.log('Offer sent', 'signal');
-      UI.setStage(1, 'done');
-      UI.setStage(2, 'active');
+      await c.offer();
+      UI.log('Offer sent → ' + remotePeerId.slice(0,8), 'signal');
     } catch (e) {
       UI.log('Offer error: ' + e.message, 'error');
-      initiating = false;
+      peer.initiating = false;
     }
   }
 
-async function handleOffer({ from, sdp }) {
-  UI.log('Offer received', 'signal');
+  async function handleOffer({ from, sdp, name }) {
+    UI.log('Offer ← ' + from.slice(0,8), 'signal');
 
-  // FIX: Prevent overwriting an active connection reference without closing it
-  if (conn) {
-    UI.log('Incoming offer during active session. Tearing down...', 'warn');
-    teardown();
-  }
+    _ensurePeerRecord(from, name);
+    const peer = peers.get(from);
 
-  UI.setStage(1, 'done');
-  UI.setStage(2, 'active');
+    // If a connection already exists for this peer (rare race), tear it down.
+    if (peer.conn) {
+      UI.log('Re-offer from ' + from.slice(0,8) + ' — resetting', 'warn');
+      _teardownPeer(from);
+    }
 
-  setConn(buildConnection(from));
-  if (localStream) conn.addStream(localStream);
+    const c = buildConnection(from);
+    _setPeerConn(from, c);
+    if (localStream) c.addStream(localStream);
 
-  try {
-    await conn.handleOffer(sdp);
-    UI.log('Answer sent', 'signal');
-    UI.setStage(2, 'done');
-    UI.setStage(3, 'active');
-  } catch (e) {
-    UI.log('Answer error: ' + e.message, 'error');
-  }
-}
-  async function handleAnswer({ sdp }) {
-    if (!conn) return;
     try {
-      await conn.handleAnswer(sdp);
-      UI.log('Answer received — ICE checking…', 'signal');
-      UI.setStage(2, 'done');
-      UI.setStage(3, 'active');
+      await c.handleOffer(sdp);
+      UI.log('Answer sent → ' + from.slice(0,8), 'signal');
+    } catch (e) {
+      UI.log('Answer error: ' + e.message, 'error');
+    }
+  }
+
+  async function handleAnswer({ from, sdp }) {
+    const peer = peers.get(from);
+    if (!peer?.conn) return;
+    try {
+      await peer.conn.handleAnswer(sdp);
+      UI.log('Answer ← ' + from.slice(0,8), 'signal');
     } catch (e) {
       UI.log('handleAnswer error: ' + e.message, 'error');
     }
   }
 
-  // ── ICE — two-layer buffering ──────────────────────────────────
-  // Layer 1 (room.js): buffer until conn object exists
-  // Layer 2 (connection.js): buffer until setRemoteDescription done
-  async function handleIce({ candidate }) {
-    if (!conn) {
-      _pendingIceBuf.push(candidate);
+  // ── ICE — two-layer buffering (preserved from v3, now per-peer) ───────────
+  // Layer 1 (room.js):      buffer until the Connection object for this peer exists
+  // Layer 2 (connection.js): buffer until setRemoteDescription completes
+  async function handleIce({ from, candidate }) {
+    const peer = peers.get(from);
+    if (!peer?.conn) {
+      if (!_pendingIceBuf.has(from)) _pendingIceBuf.set(from, []);
+      _pendingIceBuf.get(from).push(candidate);
       return;
     }
-    await conn.handleIce(candidate);
-    UI.log('ICE ← ' + (candidate.type || 'host'), 'signal');
+    await peer.conn.handleIce(candidate);
   }
 
-  // Assigns conn and immediately drains any buffered ICE candidates
-  function setConn(c) {
-    conn = c;
-    if (_pendingIceBuf.length) {
-      UI.log('Draining ' + _pendingIceBuf.length + ' buffered ICE candidates', 'signal');
-      const buf = _pendingIceBuf.slice();
-      _pendingIceBuf = [];
-      buf.forEach(cand => conn.handleIce(cand));
+  // Assign conn to a peer record and drain any buffered ICE for that peer.
+  function _setPeerConn(peerId, c) {
+    const peer = peers.get(peerId);
+    if (!peer) return;
+    peer.conn = c;
+
+    const buf = _pendingIceBuf.get(peerId);
+    if (buf?.length) {
+      UI.log('Draining ' + buf.length + ' buffered ICE for ' + peerId.slice(0,8), 'signal');
+      _pendingIceBuf.delete(peerId);
+      buf.forEach(cand => c.handleIce(cand));
     }
   }
 
-  function handlePeerLeft() {
-    UI.log('Peer disconnected', 'warn');
-    teardown();
-    UI.setStatus('waiting', 'Peer left — waiting…');
-    UI.setRemoteVideoOff();
-    announce();
+  // ── Peer left ──────────────────────────────────────────────────
+  function handlePeerLeft({ from }) {
+    if (!peers.has(from)) return;
+    const name = peers.get(from)?.name || from.slice(0,8);
+    UI.log('"' + name + '" left', 'warn');
+    _teardownPeer(from);
+    UI.removePeerTile(from);
+
+    // If now alone, go back to waiting state.
+    if (peers.size === 0) {
+      UI.setStatus('waiting', 'Waiting for peers…');
+      _disableSessionIfEmpty();
+    }
   }
 
   // ── Connection factory ─────────────────────────────────────────
@@ -201,97 +247,135 @@ async function handleOffer({ from, sdp }) {
     const c = new Connection(signaling, MY_ID, remotePeerId);
 
     c.on('ice-state', state => {
-      UI.updateStat('ice', state.toUpperCase().slice(0, 8));
-      UI.log('ICE → ' + state, 'signal');
-      if (state === 'connected' || state === 'completed') {
-        UI.setStage(3, 'done');
-        UI.setStage(4, 'active');
-      }
+      UI.log('ICE [' + remotePeerId.slice(0,8) + '] → ' + state, 'signal');
       if (state === 'failed' || state === 'disconnected' || state === 'closed') {
-        UI.log('WebRTC connection ' + state, 'warn');
-        handlePeerLeft(); // This will trigger teardown and re-announce
+        UI.log('Connection lost to ' + remotePeerId.slice(0,8), 'warn');
+        handlePeerLeft({ from: remotePeerId });
       }
     });
 
     c.on('conn-state', state => {
-      if (state === 'failed') teardown();
+      if (state === 'failed') handlePeerLeft({ from: remotePeerId });
     });
 
     c.on('track', ({ stream }) => {
-      UI.setRemoteVideo(stream);
-      UI.log('Remote video active', 'ok');
+      const peer = peers.get(remotePeerId);
+      if (peer) peer.stream = stream;
+
+      // If the tile doesn't exist yet (announce hasn't arrived), retry
+      // after a short delay — the tile will be created by then.
+      const trySetVideo = () => {
+        const v = document.getElementById('vid-' + remotePeerId);
+        if (v) {
+          UI.setPeerVideo(remotePeerId, stream);
+        } else {
+          setTimeout(trySetVideo, 300);   // retry until tile exists
+        }
+      };
+      trySetVideo();
+      UI.log('Remote video ← ' + remotePeerId.slice(0,8), 'ok');
     });
 
-    c.on('channels-ready', () => onChannelsReady(c));
-    c.on('channel-open',  label =>
-      UI.log('Channel [' + label.replace('ps:', '') + '] open', 'ok'));
-    c.on('channel-error', ({ label, error }) =>
+    c.on('channels-ready', () => onChannelsReady(remotePeerId, c));
+    c.on('channel-open',   label =>
+      UI.log('Channel [' + label.replace('ps:','') + '] open with ' + remotePeerId.slice(0,8), 'ok'));
+    c.on('channel-error',  ({ label, error }) =>
       UI.log('Channel error [' + label + ']: ' + error, 'error'));
 
+    // doc and chat receive handlers delegate to shared managers
     c.onChannel(PS.DC.DOC,  data => docSync?.receive(data));
     c.onChannel(PS.DC.CHAT, data => chatMgr?.receive(data));
-    c.onChannel(PS.DC.FILE, data => fileXfer?.receive(data));
-    c.onChannel(PS.DC.CTRL, data => handleCtrl(data, c));
+
+    // file handler set up once fileXfer exists for this peer (see onChannelsReady)
+    c.onChannel(PS.DC.FILE, data => peers.get(remotePeerId)?.fileXfer?.receive(data));
+    c.onChannel(PS.DC.CTRL, data => handleCtrl(data, c, remotePeerId));
 
     return c;
   }
 
-  // ── Session live ───────────────────────────────────────────────
-  function onChannelsReady(c) {
-    if (connected) return;
-    connected    = true;
-    sessionStart = Date.now();
+  // ── Session live (per peer) ────────────────────────────────────
+  function onChannelsReady(peerId, c) {
+    const peer = peers.get(peerId);
+    if (!peer) return;
+    peer.ready = true;
 
-    // Hook up Quill to Sync Engine
-    docSync = new DocSync(delta => {
-      UI.quill.updateContents(delta);
-    });
+    // Initialise shared docSync and chatMgr on the first peer connection.
+    if (!docSync) {
+      docSync = new DocSync(delta => {
+        UI.quill.updateContents(delta);
+      });
 
-    UI.quill.on('text-change', (delta, oldDelta, source) => {
-      if (source === 'user' && !docSync.isSuppressed) {
-        sendDoc(delta);
-      }
-      document.getElementById('docChars').textContent = (UI.quill.getLength() - 1) + ' chars';
-    });
+      UI.quill.on('text-change', (delta, _old, source) => {
+        if (source === 'user' && !docSync.isSuppressed) broadcastDoc(delta);
+        document.getElementById('docChars').textContent =
+          (UI.quill.getLength() - 1) + ' chars';
+      });
+    }
 
-    chatMgr = new Chat(MY_NAME, (msg, self) => UI.renderChat(msg, self));
+    if (!chatMgr) {
+      chatMgr = new Chat(MY_NAME, (msg, self) => UI.renderChat(msg, self));
+    }
 
-    fileXfer = new FileTransfer(
+    // File transfer is per-peer (chunk state is per-channel).
+    peer.fileXfer = new FileTransfer(
       (id, name, ratio, dir) => UI.updateFileProgress(id, name, ratio, dir),
       (id, name, blob)       => UI.completeFile(id, name, blob)
     );
-    fileXfer.setSend(data => c.send(PS.DC.FILE, data));
+    peer.fileXfer.setSend(data => c.send(PS.DC.FILE, data));
 
-    UI.setStage(4, 'done');
-    UI.setStage(5, 'active');
-    setTimeout(() => UI.setStage(5, 'done'), 500);
-    UI.setStatus('connected', '● P2P Live');
+    // Start ping/stats loop for this peer.
+    if (!sessionStart) sessionStart = Date.now();
+    peer.statsTimer = setInterval(async () => {
+      c.send(PS.DC.CTRL, JSON.stringify({ t: 'ping', ts: Date.now() }));
+    }, 2000);
+
+    UI.setStatus('connected', '● P2P Live (' + peers.size + ' peer' + (peers.size > 1 ? 's' : '') + ')');
     UI.enableSession();
-    startStats(c);
-    UI.log('SESSION LIVE — all data is P2P', 'ok');
+    UI.log('SESSION LIVE with ' + (peer.name || peerId.slice(0,8)) + ' — all data P2P', 'ok');
   }
 
-  function teardown() {
-    if (statsTimer) { clearInterval(statsTimer); statsTimer = null; }
-    
-    // FIX: Ensure safe closure of connection object
-    if (conn) {
-      conn.close();
-    }
-    
-    conn         = null;
-    initiating   = false;
-    connected    = false;
-    _pendingIceBuf = [];
-    docSync = chatMgr = fileXfer = null;
-    
+  // ── Teardown helpers ───────────────────────────────────────────
+
+  function _teardownPeer(peerId) {
+    const peer = peers.get(peerId);
+    if (!peer) return;
+    if (peer.statsTimer) clearInterval(peer.statsTimer);
+    if (peer.conn) { try { peer.conn.close(); } catch (_) {} }
+    peers.delete(peerId);
+    _pendingIceBuf.delete(peerId);
+  }
+
+  function _teardownAll() {
+    peers.forEach((_, pid) => _teardownPeer(pid));
+    docSync = chatMgr = null;
+    sessionStart = null;
     UI.disableSession();
-    UI.resetStages();
-    UI.setRemoteVideoOff(); // FIX: Clear frozen remote video frame
+    UI.clearAllRemoteTiles();
+  }
+
+  function _disableSessionIfEmpty() {
+    if (peers.size === 0) {
+      docSync = chatMgr = null;
+      UI.disableSession();
+    }
+  }
+
+  // ── Ensure a peer record exists ────────────────────────────────
+  function _ensurePeerRecord(peerId, name) {
+    if (!peers.has(peerId)) {
+      peers.set(peerId, {
+        conn: null, name: name || '', stream: null,
+        fileXfer: null, statsTimer: null, ready: false, initiating: false,
+      });
+      UI.addPeerTile(peerId, name || peerId.slice(0,8));
+    } else if (name) {
+      peers.get(peerId).name = name;
+      UI.updatePeerName(peerId, name);
+    }
   }
 
   // ── Control channel ────────────────────────────────────────────
-  function handleCtrl(raw, c) {
+  function handleCtrl(raw, c, peerId) {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
     switch (msg.t) {
@@ -304,44 +388,39 @@ async function handleOffer({ from, sdp }) {
       case 'typing':
         UI.showTyping(msg.name);
         break;
+      // Peer is telling us they muted/unmuted their own audio or video.
+      // We reflect this in their tile overlay (no actual track control on our side).
+      case 'media-state':
+        UI.updatePeerMediaState(peerId, msg.audio, msg.video);
+        break;
     }
   }
 
-  // ── Stats loop ─────────────────────────────────────────────────
-  function startStats(c) {
-    statsTimer = setInterval(async () => {
-      c.send(PS.DC.CTRL, JSON.stringify({ t: 'ping', ts: Date.now() }));
-      UI.updateStat('time', formatTime(Date.now() - sessionStart));
-      try {
-        const stats = await c.getStats();
-        let sent = 0, recv = 0;
-        stats.forEach(r => {
-          if (r.type === 'data-channel') {
-            sent += r.bytesSent    || 0;
-            recv += r.bytesReceived || 0;
-          }
-        });
-        UI.updateStat('sent', formatBytes(sent));
-        UI.updateStat('recv', formatBytes(recv));
-      } catch (_) {}
-    }, 2000);
+  // ── Broadcast helpers ──────────────────────────────────────────
+  // Fan out to all connected peers.
+
+  function broadcastDoc(delta) {
+    if (!docSync) return;
+    const packed = docSync.pack(delta);
+    peers.forEach(({ conn, ready }) => {
+      if (ready && conn) conn.send(PS.DC.DOC, packed);
+    });
   }
 
-  // ── Send actions ───────────────────────────────────────────────
-  function sendDoc(delta) {
-    if (!conn || !docSync || !connected) return;
-    conn.send(PS.DC.DOC, docSync.pack(delta));
-  }
-
-  function sendChat(text) {
-    if (!text.trim() || !conn || !chatMgr || !connected) return;
-    conn.send(PS.DC.CHAT, chatMgr.send(text));
-    conn.send(PS.DC.CTRL, JSON.stringify({ t: 'typing', name: MY_NAME }));
+  function broadcastChat(text) {
+    if (!text.trim() || !chatMgr) return;
+    const packed = chatMgr.send(text);
+    peers.forEach(({ conn, ready }) => {
+      if (ready && conn) conn.send(PS.DC.CHAT, packed);
+    });
   }
 
   function sendFile(file) {
-    if (!file || !conn || !fileXfer || !connected) return;
-    fileXfer.send(file);
+    if (!file) return;
+    // Sends to every peer (each gets their own copy via their own channel).
+    peers.forEach(({ fileXfer, ready }) => {
+      if (ready && fileXfer) fileXfer.send(file);
+    });
   }
 
   function toggleMute() {
@@ -350,6 +429,7 @@ async function handleOffer({ from, sdp }) {
     if (!t) return;
     t.enabled = !t.enabled;
     document.getElementById('btnMute').textContent = t.enabled ? '🎤 Mute' : '🔇 Unmute';
+    _broadcastMediaState();
   }
 
   function toggleCam() {
@@ -358,16 +438,27 @@ async function handleOffer({ from, sdp }) {
     if (!t) return;
     t.enabled = !t.enabled;
     document.getElementById('btnCam').textContent = t.enabled ? '📷 Cam Off' : '📷 Cam On';
+    _broadcastMediaState();
+  }
+
+  // Tell all peers our current mute state so they can show the overlay.
+  function _broadcastMediaState() {
+    const audio = localStream?.getAudioTracks()[0]?.enabled ?? true;
+    const video = localStream?.getVideoTracks()[0]?.enabled ?? true;
+    const msg   = JSON.stringify({ t: 'media-state', audio, video });
+    peers.forEach(({ conn, ready }) => {
+      if (ready && conn) conn.send(PS.DC.CTRL, msg);
+    });
   }
 
   window.addEventListener('beforeunload', () => {
     signaling?.send('leaving', {});
-    teardown();
+    _teardownAll();
     signaling?.destroy();
     localStream?.getTracks().forEach(t => t.stop());
   });
 
-  window._ps = { sendDoc, sendChat, sendFile, toggleMute, toggleCam };
+  window._ps = { broadcastDoc, broadcastChat, sendFile, toggleMute, toggleCam };
 
   // ══════════════════════════════════════════════════════════════
   // UI
@@ -377,41 +468,33 @@ async function handleOffer({ from, sdp }) {
     quill: null,
 
     init(name, roomId) {
+      
       document.getElementById('myName').textContent   = name;
+      const n2 = document.getElementById('myName2');
+      if (n2) n2.textContent = name;
       document.getElementById('roomCode').textContent = roomId;
 
-      const icons = Quill.import('ui/icons');
       this.quill = new Quill('#docEditor', {
         theme: 'snow',
-        modules: {
-          table: true,
-          toolbar: '#docToolbar'
-        },
-        placeholder: 'Establish connection to begin collaborative synthesis. Growth syncs seamlessly via WebRTC...'
+        modules: { table: true, toolbar: '#docToolbar' },
+        placeholder: 'Establish connection to begin collaborative editing…',
       });
       this.quill.disable();
 
       document.getElementById('btnInsertTable').addEventListener('click', () => {
-        if (!connected) return;
         const table = this.quill.getModule('table');
-        table.insertTable(3, 3); // Default 3x3 table
+        if (table) table.insertTable(3, 3);
       });
 
       document.getElementById('btnExport').addEventListener('click', () => {
         const html = this.quill.getSemanticHTML();
-        const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>PeerSpace Synthesis</title></head><body>";
-        const footer = "</body></html>";
-        const sourceHTML = header + html + footer;
-        
-        const source = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(sourceHTML);
-        const fileDownload = document.createElement("a");
-        document.body.appendChild(fileDownload);
-        fileDownload.href = source;
-        fileDownload.download = 'PeerSpace_Synthesis.doc';
-        fileDownload.click();
-        document.body.removeChild(fileDownload);
-        
-        this.log('Exported document as Word file', 'ok');
+        const src  = "data:application/vnd.ms-word;charset=utf-8," +
+          encodeURIComponent(
+            "<html><head><meta charset='utf-8'></head><body>" + html + "</body></html>"
+          );
+        Object.assign(document.createElement('a'),
+          { href: src, download: 'PeerSpace_Synthesis.doc' }).click();
+        this.log('Exported document', 'ok');
       });
 
       document.getElementById('copyLink').addEventListener('click', () => {
@@ -423,23 +506,14 @@ async function handleOffer({ from, sdp }) {
         });
       });
 
-      const ed = document.getElementById('docEditor');
-      ed.addEventListener('input', () => {
-        if (!docSync?.isSuppressed) sendDoc(ed.value);
-        document.getElementById('docChars').textContent = ed.value.length + ' chars';
-      });
-
       document.getElementById('chatInput').addEventListener('keydown', e => {
         if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          sendChat(e.target.value);
-          e.target.value = '';
+          e.preventDefault(); broadcastChat(e.target.value); e.target.value = '';
         }
       });
       document.getElementById('chatSend').addEventListener('click', () => {
         const inp = document.getElementById('chatInput');
-        sendChat(inp.value);
-        inp.value = '';
+        broadcastChat(inp.value); inp.value = '';
       });
 
       document.getElementById('filePicker').addEventListener('change', e => {
@@ -448,19 +522,21 @@ async function handleOffer({ from, sdp }) {
       });
       const dz = document.getElementById('fileDropZone');
       dz.addEventListener('click', () => document.getElementById('filePicker').click());
-      dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dz-over'); });
-      dz.addEventListener('dragleave', () => dz.classList.remove('dz-over'));
+      dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('dz-over'); });
+      dz.addEventListener('dragleave', ()  => dz.classList.remove('dz-over'));
       dz.addEventListener('drop', e => {
         e.preventDefault(); dz.classList.remove('dz-over');
-        const f = e.dataTransfer.files[0];
-        if (f) sendFile(f);
+        const f = e.dataTransfer.files[0]; if (f) sendFile(f);
       });
 
       document.getElementById('btnMute').addEventListener('click', toggleMute);
       document.getElementById('btnCam').addEventListener('click', toggleCam);
+
       document.querySelectorAll('.tab').forEach(t =>
         t.addEventListener('click', () => this.switchTab(t.dataset.tab)));
     },
+
+    // ── Status / logging ────────────────────────────────────────
 
     setStatus(state, text) {
       const el = document.getElementById('statusPill');
@@ -468,57 +544,13 @@ async function handleOffer({ from, sdp }) {
       el.className   = 'status-pill status-' + state;
     },
 
+    // ── The stage ladder is kept for the first connection only.
+    // Once multi-peer, we drop the granular stage steps. ────────
     setStage(n, state) {
       const el = document.querySelector('[data-stage="' + n + '"]');
       if (el) el.className = 'stage stage-' + state;
     },
-
-    resetStages() {
-      for (let i = 1; i <= 5; i++) this.setStage(i, 'idle');
-    },
-
-    setLocalVideo(stream) {
-      const v = document.getElementById('localVideo');
-      document.getElementById('localOff').hidden = true;
-      v.hidden = false;
-      v.srcObject = stream;
-      v.play().catch(() => {});
-    },
-
-    setRemoteVideo(stream) {
-      const v = document.getElementById('remoteVideo');
-      document.getElementById('remoteOff').hidden = true;
-      v.hidden    = false;
-      v.srcObject = stream;
-      v.play().catch(() => {});
-      setTimeout(() => v.play().catch(() => {}), 300);
-    },
-
-    setRemoteVideoOff() {
-      const v = document.getElementById('remoteVideo');
-      v.srcObject = null;
-      v.hidden    = true;
-      document.getElementById('remoteOff').hidden = false;
-    },
-
-    enableSession() {
-      this.quill.enable();
-      document.getElementById('chatInput').disabled = false;
-      document.getElementById('chatSend').disabled  = false;
-      document.getElementById('fileDropZone').classList.remove('dz-disabled');
-    },
-
-    disableSession() {
-      this.quill.disable();
-      document.getElementById('chatInput').disabled = true;
-      document.getElementById('chatSend').disabled  = true;
-      document.getElementById('fileDropZone').classList.add('dz-disabled');
-    },
-
-    updateStat(key, val) {
-      const el = document.getElementById('stat-' + key);
-      if (el) el.textContent = val;
-    },
+    resetStages() { for (let i = 1; i <= 5; i++) this.setStage(i, 'idle'); },
 
     log(msg, type) {
       type = type || 'info';
@@ -526,15 +558,114 @@ async function handleOffer({ from, sdp }) {
       if (!log) return;
       const row = document.createElement('div');
       row.className = 'log-row log-' + type;
-      const d   = new Date();
-      const ts  = String(d.getMinutes()).padStart(2,'0') + ':' +
-                  String(d.getSeconds()).padStart(2,'0');
+      const d  = new Date();
+      const ts = String(d.getMinutes()).padStart(2,'0') + ':' +
+                 String(d.getSeconds()).padStart(2,'0');
       row.innerHTML =
         '<span class="log-ts">' + ts + '</span>' +
         '<span class="log-msg">' + escHtml(msg) + '</span>';
       log.appendChild(row);
       log.scrollTop = log.scrollHeight;
     },
+
+    updateStat(key, val) {
+      const el = document.getElementById('stat-' + key);
+      if (el) el.textContent = val;
+    },
+
+    // ── Local video ─────────────────────────────────────────────
+
+    setLocalVideo(stream) {
+          const v   = document.getElementById('localVideo');
+          const off = document.getElementById('localOff');
+          if (off) off.remove();                // ← remove from DOM entirely
+          v.style.display = 'block';
+          v.removeAttribute('hidden');
+          v.srcObject = stream;
+          v.play().catch(() => {});
+        },
+
+    // ── Dynamic peer tile grid ───────────────────────────────────
+    // Each remote peer gets a <div class="video-tile"> inside #videoGrid.
+    // The grid uses CSS grid-template-columns that reflows automatically
+    // based on peer count (1→full width, 2→two cols, 3-4→2×2).
+
+    addPeerTile(peerId, name) {
+      const grid = document.getElementById('videoGrid');
+      if (document.getElementById('tile-' + peerId)) return;
+
+      const tile = document.createElement('div');
+      tile.className = 'video-tile';
+      tile.id = 'tile-' + peerId;
+      tile.innerHTML =
+        '<video id="vid-' + peerId + '" autoplay playsinline></video>' +
+        '<div class="tile-off" id="toff-' + peerId + '">' +
+          '<span>📷</span><span class="tile-name">' + escHtml(name) + '</span>' +
+        '</div>' +
+        '<div class="tile-overlay">' +
+          '<span class="tile-name-label">' + escHtml(name) + '</span>' +
+          '<span class="tile-badges" id="tbadge-' + peerId + '"></span>' +
+        '</div>';
+      grid.appendChild(tile);
+      this._reflowGrid();
+    },
+
+    removePeerTile(peerId) {
+      const el = document.getElementById('tile-' + peerId);
+      if (el) el.remove();
+      this._reflowGrid();
+    },
+
+    clearAllRemoteTiles() {
+      document.querySelectorAll('.video-tile[id^="tile-"]').forEach(el => el.remove());
+      this._reflowGrid();
+    },
+
+    updatePeerName(peerId, name) {
+      const el = document.querySelector('#tile-' + peerId + ' .tile-name');
+      if (el) el.textContent = name;
+      const lbl = document.querySelector('#tile-' + peerId + ' .tile-name-label');
+      if (lbl) lbl.textContent = name;
+    },
+
+setPeerVideo(peerId, stream) {
+  const v   = document.getElementById('vid-' + peerId);
+  const off = document.getElementById('toff-' + peerId);
+  if (!v) return;
+  if (off) off.remove();                // ← remove from DOM entirely
+  v.style.display = 'block';
+  v.removeAttribute('hidden');
+  v.srcObject = stream;
+  v.play().catch(() => {});
+  setTimeout(() => v.play().catch(() => {}), 300);
+},
+
+    // Called when remote peer broadcasts their mute state via ctrl channel.
+    updatePeerMediaState(peerId, audio, video) {
+      const badges = document.getElementById('tbadge-' + peerId);
+      if (!badges) return;
+      let s = '';
+      if (!audio) s += '<span class="badge-muted">🔇</span>';
+      if (!video) s += '<span class="badge-novid">📵</span>';
+      badges.innerHTML = s;
+
+      // Dim the video tile if they turned off video
+      const tile = document.getElementById('tile-' + peerId);
+      if (tile) tile.classList.toggle('tile-novid', !video);
+    },
+
+    // Recompute CSS grid columns based on tile count.
+    // 1 peer  → 1 col (large)
+    // 2 peers → 2 cols
+    // 3-4     → 2×2
+    _reflowGrid() {
+      const grid  = document.getElementById('videoGrid');
+      const count = grid.querySelectorAll('.video-tile').length + 1; // +1 for local
+      const cols  = count <= 2 ? count : 2;
+      grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    },
+
+    // ── Chat ────────────────────────────────────────────────────
 
     renderChat(msg, self) {
       const box = document.getElementById('chatMessages');
@@ -555,6 +686,8 @@ async function handleOffer({ from, sdp }) {
       this._typingTimer = setTimeout(() => { el.hidden = true; }, 2000);
     },
 
+    // ── File transfer ───────────────────────────────────────────
+
     updateFileProgress(id, name, ratio, dir) {
       let card = document.getElementById('fc-' + id);
       if (!card) {
@@ -571,8 +704,8 @@ async function handleOffer({ from, sdp }) {
           '<span class="file-pct" id="fp-' + id + '">0%</span>';
         document.getElementById('fileList').appendChild(card);
       }
-      const pct  = Math.round(ratio * 100);
-      const fill = document.getElementById('ff-' + id);
+      const pct = Math.round(ratio * 100);
+      const fill  = document.getElementById('ff-' + id);
       const pctEl = document.getElementById('fp-' + id);
       if (fill)  fill.style.width  = pct + '%';
       if (pctEl) pctEl.textContent = pct + '%';
@@ -589,6 +722,24 @@ async function handleOffer({ from, sdp }) {
       this.log('Received: ' + name, 'ok');
     },
 
+    // ── Session enable/disable ──────────────────────────────────
+
+    enableSession() {
+      this.quill.enable();
+      document.getElementById('chatInput').disabled = false;
+      document.getElementById('chatSend').disabled  = false;
+      document.getElementById('fileDropZone').classList.remove('dz-disabled');
+    },
+
+    disableSession() {
+      this.quill.disable();
+      document.getElementById('chatInput').disabled = true;
+      document.getElementById('chatSend').disabled  = true;
+      document.getElementById('fileDropZone').classList.add('dz-disabled');
+    },
+
+    // ── Tab switching ───────────────────────────────────────────
+
     switchTab(tab) {
       document.querySelectorAll('.tab').forEach(t =>
         t.classList.toggle('active', t.dataset.tab === tab));
@@ -596,6 +747,8 @@ async function handleOffer({ from, sdp }) {
         p.classList.toggle('active', p.dataset.pane === tab));
     },
   };
+
+  // ── Utilities ──────────────────────────────────────────────────
 
   function escHtml(s) {
     return String(s)

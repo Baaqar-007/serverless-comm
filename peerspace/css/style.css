@@ -1,6 +1,19 @@
 /* peerspace/css/style.css */
 /* ── Reset & Solar Punk UI Variables ────────────────────────── */
+
+@charset "UTF-8";
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+
+
+
+
+[hidden], 
+#localOff[hidden] {
+  display: none !important;
+}
+
 
 :root {
   /* Solar Punk Palette: Warm, organic, vibrant, bright */
@@ -14,7 +27,7 @@
   --surf-inset: rgba(230, 245, 238, 0.4);
   
   /* Borders and Highlights */
-  --bdr: rgba(16, 185, 129, 0.25);
+  --bdr: rgba(7, 15, 12, 0.25);
   --bdr-light: rgba(255, 255, 255, 0.8);
   --bdr-strong: rgba(16, 185, 129, 0.5);
   
@@ -263,7 +276,7 @@ body {
 
 /* ── Left column ─────────────────────────────────────────────── */
 .left-col {
-  width: 260px;
+  width: 520px;                    /* was 260px  –  now fits 2 columns of 240px */
   border-radius: var(--rad-lg);
   display: flex;
   flex-direction: column;
@@ -272,7 +285,148 @@ body {
   gap: 12px;
 }
 
-/* Video slots */
+/* ─────────────────────────────────────────────────────────────────
+   PeerSpace – larger video grid (all tiles fill the space)
+   ───────────────────────────────────────────────────────────────── */
+/* related resource: style.css:291:1 */
+/*
+#videoGrid { 
+  height: auto;
+  min-height: 150px;
+  grid-template-rows: auto;
+  align-content: start;
+  max-height: calc(-200px + 100vh);
+  overflow-y: auto;
+  justify-items: stretch;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 12px;
+  padding: 12px;
+  width: 100%;
+}
+*/
+
+#videoGrid {
+  flex: 1; /* Allows the grid to grow and fill the space */
+  min-height: 150px;
+  overflow-y: auto;
+  justify-items: stretch;
+  align-content: start;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  grid-template-rows: auto;
+  gap: 12px;
+  padding: 12px;
+  width: 100%;
+}
+
+/* related resource: style.css:310:1 */
+#localTile { /* the element was div#localTile */
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+}
+
+/* related resource: style.css:320:1 */
+#localVideo { /* the element was video#localVideo */
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* related resource: style.css:329:1 */
+.video-tile { /* the element was div#tile-9abf23d2-ba10-4562-b52b-4b71190e6419 */
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+}
+
+/* related resource: style.css:339:1 */
+.video-tile video { /* the element was video#vid-9abf23d2-ba10-4562-b52b-4b71190e6419 */
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+
+
+/* Placeholder (unchanged) */
+.tile-off {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #888;
+  font-size: 13px;
+  background: #111;
+}
+
+.tile-off span:first-child { font-size: 32px; }
+
+/* Overlay (unchanged) */
+.tile-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 6px 10px;
+  background: linear-gradient(transparent, rgba(0,0,0,0.65));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.tile-name-label {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tile-badges {
+  display: flex;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.tile-novid video {
+  opacity: 0.15;
+}
+
+/* ── Controls bar (keep as‑is) ── */
+
+/* ── Controls bar below the grid ── */
+.video-controls {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.video-controls button {
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  background: #222;
+  color: #ddd;
+  transition: background .15s;
+}
+
+.video-controls button:hover   { background: #333; }
+.video-controls button.muted   { background: #7f1d1d; color: #fca5a5; }
+.video-controls button.cam-off { background: #1c1917; color: #a8a29e; }
+
 .vid-slot {
   flex: 1;
   position: relative;
@@ -317,7 +471,9 @@ body {
 
 /* Log box */
 .log-box {
-  flex: 1;
+  flex: 0 1 200px; /* Suggests a 200px height, but allows shrinking if needed */
+  min-height: 100px;
+  max-height: 30vh; /* Caps the log box at 30% of the screen height */
   display: flex;
   flex-direction: column;
   background: var(--surf-solid);
