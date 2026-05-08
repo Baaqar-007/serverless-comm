@@ -307,7 +307,7 @@ body {
 */
 
 #videoGrid {
-  flex: 1; /* Allows the grid to grow and fill the space */
+  flex: 1;
   min-height: 150px;
   overflow-y: auto;
   justify-items: stretch;
@@ -321,34 +321,36 @@ body {
 }
 
 /* related resource: style.css:310:1 */
-#localTile { /* the element was div#localTile */
+#localTile {
+  position: relative;   /* anchors absolute overlays */
   width: 100%;
   aspect-ratio: 16 / 9;
   height: auto;
+  overflow: hidden;     /* keeps video contained */
 }
 
 /* related resource: style.css:320:1 */
-#localVideo { /* the element was video#localVideo */
+#localVideo {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
 /* related resource: style.css:329:1 */
-.video-tile { /* the element was div#tile-9abf23d2-ba10-4562-b52b-4b71190e6419 */
+.video-tile {
+  position: relative;   /* anchors .tile-off and .tile-overlay */
   width: 100%;
   aspect-ratio: 16 / 9;
   height: auto;
+  overflow: hidden;
 }
 
 /* related resource: style.css:339:1 */
-.video-tile video { /* the element was video#vid-9abf23d2-ba10-4562-b52b-4b71190e6419 */
+.video-tile video {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
-
-
 
 /* Placeholder (unchanged) */
 .tile-off {
@@ -402,13 +404,12 @@ body {
 }
 
 /* ── Controls bar (keep as‑is) ── */
-
-/* ── Controls bar below the grid ── */
 .video-controls {
   display: flex;
   gap: 8px;
   justify-content: center;
   padding: 8px 0;
+  flex-shrink: 0;      /* prevents bar from shrinking in flex column */
 }
 
 .video-controls button {
@@ -471,9 +472,9 @@ body {
 
 /* Log box */
 .log-box {
-  flex: 0 1 200px; /* Suggests a 200px height, but allows shrinking if needed */
+  flex: 0 1 200px;
   min-height: 100px;
-  max-height: 30vh; /* Caps the log box at 30% of the screen height */
+  max-height: 30vh;
   display: flex;
   flex-direction: column;
   background: var(--surf-solid);
