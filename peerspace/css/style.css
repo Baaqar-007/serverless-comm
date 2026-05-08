@@ -1,6 +1,19 @@
 /* peerspace/css/style.css */
 /* ── Reset & Solar Punk UI Variables ────────────────────────── */
+
+@charset "UTF-8";
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+
+
+
+
+[hidden], 
+#localOff[hidden] {
+  display: none !important;
+}
+
 
 :root {
   /* Solar Punk Palette: Warm, organic, vibrant, bright */
@@ -14,7 +27,7 @@
   --surf-inset: rgba(230, 245, 238, 0.4);
   
   /* Borders and Highlights */
-  --bdr: rgba(16, 185, 129, 0.25);
+  --bdr: rgba(7, 15, 12, 0.25);
   --bdr-light: rgba(255, 255, 255, 0.8);
   --bdr-strong: rgba(16, 185, 129, 0.5);
   
@@ -83,11 +96,20 @@ body {
 /* ── 3D & Glass Utility Classes ─────────────────────────────── */
 .glass-3d {
   background: var(--surf);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  /* backdrop-filter intentionally removed from both here and ::before.
+     ANY element with backdrop-filter (or a child/pseudo with it) is
+     promoted to a stacking context by every browser — this is what was
+     clipping Quill's picker-options dropdowns regardless of z-index.
+     The glass effect is replicated with a slightly more opaque background. */
+  background: rgba(255, 255, 255, 0.72);
   border: 1px solid var(--bdr-light);
   box-shadow: var(--shadow-glass);
+  position: relative;
+  /* NO isolation:isolate — explicit stacking context trap */
+  /* NO ::before with backdrop-filter — same trap, different syntax */
 }
+
+/* .glass-3d::before intentionally removed — see note above */
 .inset-3d {
   background: var(--surf-inset);
   box-shadow: var(--shadow-inset);
@@ -263,7 +285,7 @@ body {
 
 /* ── Left column ─────────────────────────────────────────────── */
 .left-col {
-  width: 260px;
+  width: 520px;                    /* was 260px  –  now fits 2 columns of 240px */
   border-radius: var(--rad-lg);
   display: flex;
   flex-direction: column;
@@ -272,7 +294,149 @@ body {
   gap: 12px;
 }
 
-/* Video slots */
+/* ─────────────────────────────────────────────────────────────────
+   PeerSpace – larger video grid (all tiles fill the space)
+   ───────────────────────────────────────────────────────────────── */
+/* related resource: style.css:291:1 */
+/*
+#videoGrid { 
+  height: auto;
+  min-height: 150px;
+  grid-template-rows: auto;
+  align-content: start;
+  max-height: calc(-200px + 100vh);
+  overflow-y: auto;
+  justify-items: stretch;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 12px;
+  padding: 12px;
+  width: 100%;
+}
+*/
+
+#videoGrid {
+  flex: 1;
+  min-height: 150px;
+  overflow-y: auto;
+  justify-items: stretch;
+  align-content: start;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  grid-template-rows: auto;
+  gap: 12px;
+  padding: 12px;
+  width: 100%;
+}
+
+/* related resource: style.css:310:1 */
+#localTile {
+  position: relative;   /* anchors absolute overlays */
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  overflow: hidden;     /* keeps video contained */
+}
+
+/* related resource: style.css:320:1 */
+#localVideo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* related resource: style.css:329:1 */
+.video-tile {
+  position: relative;   /* anchors .tile-off and .tile-overlay */
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  overflow: hidden;
+}
+
+/* related resource: style.css:339:1 */
+.video-tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Placeholder (unchanged) */
+.tile-off {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #888;
+  font-size: 13px;
+  background: #111;
+}
+
+.tile-off span:first-child { font-size: 32px; }
+
+/* Overlay (unchanged) */
+.tile-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 6px 10px;
+  background: linear-gradient(transparent, rgba(0,0,0,0.65));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.tile-name-label {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tile-badges {
+  display: flex;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.tile-novid video {
+  opacity: 0.15;
+}
+
+/* ── Controls bar (keep as‑is) ── */
+.video-controls {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  padding: 8px 0;
+  flex-shrink: 0;      /* prevents bar from shrinking in flex column */
+}
+
+.video-controls button {
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  background: #222;
+  color: #ddd;
+  transition: background .15s;
+}
+
+.video-controls button:hover   { background: #333; }
+.video-controls button.muted   { background: #7f1d1d; color: #fca5a5; }
+.video-controls button.cam-off { background: #1c1917; color: #a8a29e; }
+
 .vid-slot {
   flex: 1;
   position: relative;
@@ -317,7 +481,9 @@ body {
 
 /* Log box */
 .log-box {
-  flex: 1;
+  flex: 0 1 200px;
+  min-height: 100px;
+  max-height: 30vh;
   display: flex;
   flex-direction: column;
   background: var(--surf-solid);
@@ -403,7 +569,7 @@ body {
   border-radius: var(--rad-lg);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible !important;
 }
 
 /* Tabs */
@@ -440,6 +606,7 @@ body {
   flex: 1;
   position: relative;
   background: var(--surf-solid);
+  overflow: visible !important;
 }
 
 .tab-pane {
@@ -447,9 +614,21 @@ body {
   flex-direction: column;
   height: 100%;
 }
-.tab-pane.active { display: flex; animation: fadein 0.4s ease-out; }
+.tab-pane.active { display: flex; animation: tabfadein 0.4s ease-out; }
+
+/* Separate fade for tab panes — NO transform, which would create a stacking context
+   and clip Quill dropdowns for the 0.4s duration of the animation */
+@keyframes tabfadein { from { opacity: 0; } to { opacity: 1; } }
 
 /* ── Document ────────────────────────────────────────────────── */
+
+/* Still useful as a belt-and-suspenders, but lower value now */
+#docToolbar {
+  position: relative;
+  z-index: 20;
+  overflow: visible; /* ensure options can bleed below */
+}
+
 .doc-ed {
   flex: 1;
   padding: 24px;
@@ -461,6 +640,8 @@ body {
   line-height: 1.8;
   resize: none;
   outline: none;
+  /* position:relative + z-index:1 REMOVED — made editor a higher stacking context
+     than the toolbar, causing picker dropdowns to render behind the canvas */
 }
 .doc-ed::placeholder { color: var(--muted); font-style: italic; opacity: 0.6; }
 .doc-ed:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -719,12 +900,11 @@ body {
 }
 
 .ql-toolbar.ql-snow {
-  background: rgba(255,255,255,0.7);
+  background: rgba(255, 255, 255, 0.92); /* replace backdrop-filter with opacity */
   border: 1px solid var(--bdr-light) !important;
   border-radius: var(--rad-md) var(--rad-md) 0 0;
-  backdrop-filter: blur(12px);
   padding: 10px !important;
-  box-shadow: 0 4px 12px rgba(19,58,39,0.05);
+  box-shadow: 0 4px 12px rgba(19, 58, 39, 0.05);
 }
 
 .ql-editor {
@@ -748,7 +928,16 @@ body {
   border: 1px solid var(--bdr) !important; 
   border-radius: var(--rad-sm);
   box-shadow: var(--shadow-glass);
+  z-index: 9999 !important;
 }
+
+/* Lifted expanded picker above the editor canvas */
+.ql-snow .ql-picker.ql-expanded {
+  position: relative;
+  z-index: 9999 !important;
+}
+
+.ql-toolbar.ql-snow { overflow: visible !important; }
 
 .ql-snow .ql-active .ql-stroke,
 .ql-snow .ql-picker-label:hover .ql-stroke,

@@ -18,7 +18,7 @@ const PS = Object.freeze({
     CTRL: 'ps:ctrl',
   },
   CHUNK_SIZE: 64 * 1024,        // 64 KB per file chunk
-  MAX_PEERS:  2,                 // demo cap (2-peer session)
+  MAX_PEERS:  4,                
   SIGNAL_CHANNEL: (roomId) => `ps:room:${roomId}`,
 });
 
