@@ -96,11 +96,20 @@ body {
 /* ── 3D & Glass Utility Classes ─────────────────────────────── */
 .glass-3d {
   background: var(--surf);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  /* backdrop-filter intentionally removed from both here and ::before.
+     ANY element with backdrop-filter (or a child/pseudo with it) is
+     promoted to a stacking context by every browser — this is what was
+     clipping Quill's picker-options dropdowns regardless of z-index.
+     The glass effect is replicated with a slightly more opaque background. */
+  background: rgba(255, 255, 255, 0.72);
   border: 1px solid var(--bdr-light);
   box-shadow: var(--shadow-glass);
+  position: relative;
+  /* NO isolation:isolate — explicit stacking context trap */
+  /* NO ::before with backdrop-filter — same trap, different syntax */
 }
+
+/* .glass-3d::before intentionally removed — see note above */
 .inset-3d {
   background: var(--surf-inset);
   box-shadow: var(--shadow-inset);
@@ -560,7 +569,7 @@ body {
   border-radius: var(--rad-lg);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible !important;
 }
 
 /* Tabs */
@@ -597,6 +606,7 @@ body {
   flex: 1;
   position: relative;
   background: var(--surf-solid);
+  overflow: visible !important;
 }
 
 .tab-pane {
@@ -604,9 +614,21 @@ body {
   flex-direction: column;
   height: 100%;
 }
-.tab-pane.active { display: flex; animation: fadein 0.4s ease-out; }
+.tab-pane.active { display: flex; animation: tabfadein 0.4s ease-out; }
+
+/* Separate fade for tab panes — NO transform, which would create a stacking context
+   and clip Quill dropdowns for the 0.4s duration of the animation */
+@keyframes tabfadein { from { opacity: 0; } to { opacity: 1; } }
 
 /* ── Document ────────────────────────────────────────────────── */
+
+/* Still useful as a belt-and-suspenders, but lower value now */
+#docToolbar {
+  position: relative;
+  z-index: 20;
+  overflow: visible; /* ensure options can bleed below */
+}
+
 .doc-ed {
   flex: 1;
   padding: 24px;
@@ -618,6 +640,8 @@ body {
   line-height: 1.8;
   resize: none;
   outline: none;
+  /* position:relative + z-index:1 REMOVED — made editor a higher stacking context
+     than the toolbar, causing picker dropdowns to render behind the canvas */
 }
 .doc-ed::placeholder { color: var(--muted); font-style: italic; opacity: 0.6; }
 .doc-ed:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -876,12 +900,11 @@ body {
 }
 
 .ql-toolbar.ql-snow {
-  background: rgba(255,255,255,0.7);
+  background: rgba(255, 255, 255, 0.92); /* replace backdrop-filter with opacity */
   border: 1px solid var(--bdr-light) !important;
   border-radius: var(--rad-md) var(--rad-md) 0 0;
-  backdrop-filter: blur(12px);
   padding: 10px !important;
-  box-shadow: 0 4px 12px rgba(19,58,39,0.05);
+  box-shadow: 0 4px 12px rgba(19, 58, 39, 0.05);
 }
 
 .ql-editor {
@@ -905,7 +928,16 @@ body {
   border: 1px solid var(--bdr) !important; 
   border-radius: var(--rad-sm);
   box-shadow: var(--shadow-glass);
+  z-index: 9999 !important;
 }
+
+/* Lifted expanded picker above the editor canvas */
+.ql-snow .ql-picker.ql-expanded {
+  position: relative;
+  z-index: 9999 !important;
+}
+
+.ql-toolbar.ql-snow { overflow: visible !important; }
 
 .ql-snow .ql-active .ql-stroke,
 .ql-snow .ql-picker-label:hover .ql-stroke,
