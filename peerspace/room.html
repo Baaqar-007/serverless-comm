@@ -44,6 +44,7 @@
       <button class="ctrl-btn" id="copyLink">🔗 Copy Link</button>
       <button class="ctrl-btn" id="btnMute">🎤 Mute</button>
       <button class="ctrl-btn" id="btnCam">📷 Cam Off</button>
+      <button class="ctrl-btn ctrl-btn-end" id="btnEndMeeting">🚪 End Meeting</button>
       <span class="status-pill status-waiting" id="statusPill">Sprouting…</span>
     </div>
   </header>
@@ -90,6 +91,7 @@
         <button class="tab active" data-tab="doc">📝 Canvas</button>
         <button class="tab"        data-tab="chat">💬 Frequency</button>
         <button class="tab"        data-tab="files">📁 Matter</button>
+        <button class="tab"        data-tab="transcript">🎙️ Live Feed</button>
       </div>
 
       <div class="tabs-body">
@@ -156,15 +158,77 @@
           <div id="fileList" class="file-list"></div>
         </div>
 
+        <!-- ── Live Feed / Transcript tab ─────────────────────── -->
+        <div class="tab-pane transcript-pane" data-pane="transcript">
+
+          <!-- Whisper model loader bar — hidden once model is warm -->
+          <div id="whisperLoader" class="whisper-loader">
+            <span id="whisperLabel" class="whisper-label">Loading Whisper…</span>
+            <div class="whisper-track">
+              <div id="whisperBar" class="whisper-fill"></div>
+            </div>
+          </div>
+
+          <!-- Shown once Whisper is ready -->
+          <div id="transcriptNote" class="transcript-note" hidden>
+            🎙️ Transcribing live — chunks appear every ~6 s
+          </div>
+
+          <!-- Rolling transcript feed -->
+          <div id="transcriptFeed" class="transcript-feed"></div>
+
+          <!-- Transcript controls -->
+          <div class="transcript-footer">
+            <button id="btnToggleTranscript" class="transcript-toggle-btn tx-btn-recording">
+              ⏹ Stop Transcribing
+            </button>
+            <button id="btnSummarise" class="summarise-btn">
+              📋 Summarise Now
+            </button>
+          </div>
+
+        </div>
+
       </div>
     </div>
 
-  </div></div><script src="js/config.js"></script>
+  </div></div>
+
+<!-- ── Post-meeting Summary Modal ────────────────────────────── -->
+<div id="summaryModal" class="summary-overlay" hidden>
+  <div class="summary-card glass-3d">
+
+    <div class="summary-header">
+      <span class="summary-title">🌿 Meeting Summary</span>
+      <button class="summary-close ctrl-btn"
+              onclick="document.getElementById('summaryModal').hidden=true">✕ Close</button>
+    </div>
+
+    <!-- Spinner shown while generating -->
+    <div id="summarySpinner" class="summary-spinner">
+      <div class="spinner-ring"></div>
+      <span id="summaryProgress" class="spinner-label">Initialising…</span>
+    </div>
+
+    <!-- Populated by UI.showSummaryModal('done', result) -->
+    <div id="summaryContent" class="summary-content" hidden></div>
+
+    <div class="summary-actions" id="summaryActions">
+      <button id="btnExportSummary" class="lbtn lbtn-pri">💾 Export to Word</button>
+    </div>
+
+  </div>
+</div>
+
+<script src="js/config.js"></script>
 <script src="js/signaling.js"></script>
 <script src="js/connection.js"></script>
 <script src="js/doc-sync.js"></script>
 <script src="js/chat.js"></script>
 <script src="js/file-transfer.js"></script>
+<script src="js/model-config.js"></script>
+<script src="js/transcript-store.js"></script>
+<script src="js/transcription.js"></script>
 <script src="js/room.js"></script>
 
 </body>
