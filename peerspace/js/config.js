@@ -65,7 +65,7 @@ function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
  */
 function selectModels() {
   return {
-    transcription: 'Xenova/whisper-base.en',   // 4× better than tiny, English-optimised
+    transcription: 'Xenova/whisper-small.en',  // 244MB — 4× better than base.en
     summarization: 'Xenova/distilbart-cnn-6-6',
   };
 }

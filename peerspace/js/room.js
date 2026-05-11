@@ -75,12 +75,26 @@
     try {
       localStream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
-        audio: { echoCancellation: true, noiseSuppression: true },
+        audio: {
+          echoCancellation:   false,  // these aggressively suppress phone-speaker-through-mic
+          noiseSuppression:   false,  // and any non-close-mic audio — kills transcription
+          autoGainControl:    false,  // let Whisper see the raw signal
+          channelCount:       1,
+        },
       });
       UI.setLocalVideo(localStream);
       UI.log('Camera ready', 'ok');
     } catch (e) {
-      UI.log('No camera — audio only', 'warn');
+      UI.log('Camera failed: ' + e.message, 'warn');
+      // Fallback: try audio-only with same constraints
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        });
+        UI.log('Audio-only mode', 'warn');
+      } catch (e2) {
+        UI.log('Microphone unavailable: ' + e2.message, 'warn');
+      }
     }
   }
 
@@ -114,7 +128,7 @@
         broadcastTranscript(chunk);
       },
       onModelProgress(pct) { UI.setTranscriptModelProgress(pct); },
-      onModelReady()       { UI.log('Whisper ready ✓', 'ok'); UI.setTranscriptModelReady(); },
+      onModelReady(modelId) { UI.log('Whisper ready ✓ [' + (modelId || 'unknown') + ']', 'ok'); UI.setTranscriptModelReady(); },
       onError(msg)         { UI.log('Transcription: ' + msg, 'warn'); },
     });
   }
@@ -532,8 +546,18 @@
     broadcastDoc, broadcastChat, sendFile, toggleMute, toggleCam,
 
     toggleTranscription() {
-      if (!transcriptMgr) return;
       const btn = document.getElementById('btnToggleTranscript');
+
+      if (!transcriptMgr) {
+        UI.log('Whisper still loading — please wait', 'warn');
+        if (btn) {
+          const orig = btn.textContent;
+          btn.textContent = '⏳ Loading…';
+          setTimeout(() => { btn.textContent = orig; }, 2000);
+        }
+        return;
+      }
+
       if (transcriptMgr.isPaused()) {
         transcriptMgr.resume();
         _transcribing = true;
