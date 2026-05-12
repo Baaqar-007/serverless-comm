@@ -12,10 +12,11 @@ const PS = Object.freeze({
   },
   // DataChannel labels
   DC: {
-    DOC:  'ps:doc',
-    CHAT: 'ps:chat',
-    FILE: 'ps:file',
-    CTRL: 'ps:ctrl',
+    DOC:        'ps:doc',
+    CHAT:       'ps:chat',
+    FILE:       'ps:file',
+    CTRL:       'ps:ctrl',
+    TRANSCRIPT: 'ps:transcript',  // live transcript chunks — one per speaker
   },
   CHUNK_SIZE: 64 * 1024,        // 64 KB per file chunk
   MAX_PEERS:  4,                
@@ -51,3 +52,22 @@ function formatTime(ms) {
 }
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+/**
+ * selectModels — returns the Transformers.js model IDs for this session.
+ *
+ * Phase 1: hardcoded small models that run on any WebAssembly-capable browser.
+ * Phase 2: will benchmark deviceMemory / hardwareConcurrency / WebGPU at
+ *          worker startup and return a tiered model set (tiny → small → medium).
+ *          Only this function needs to change for Phase 2 — nothing else.
+ *
+ * @returns {{ transcription: string, summarization: string }}
+ */
+function selectModels() {
+  return {
+    // Moonshine: 5-15x faster than Whisper, processes exact audio duration,
+    // WebGPU-accelerated, 100% local — no data leaves the device.
+    transcription: 'onnx-community/moonshine-base-ONNX',
+    summarization: 'Xenova/distilbart-cnn-6-6',
+  };
+}

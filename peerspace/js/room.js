@@ -40,13 +40,15 @@
   // }
 
   // ── Module instances ───────────────────────────────────────────
-  let signaling = null;
-  let docSync   = null;   // shared across all peers
-  let chatMgr   = null;   // shared across all peers
+  let signaling     = null;
+  let docSync       = null;   // shared across all peers
+  let chatMgr       = null;   // shared across all peers
+  let transcriptMgr = null;   // live transcription (one per session)
 
   // ── Runtime state ──────────────────────────────────────────────
   let localStream = null;
   let sessionStart = null;
+  let _transcribing = true;              // toggled by the Stop/Resume button
   const peers = new Map();                  // peerId → PeerState
   const _pendingIceBuf = new Map();         // peerId → candidate[]
 
@@ -55,8 +57,13 @@
     try {
       UI.init(MY_NAME, ROOM_ID);
       await startCamera();
+      if (localStream) initTranscription();
       initSignaling();
       announce();
+
+      // Render every incoming chunk (local + remote) to the Live Feed tab.
+      TranscriptStore.onChunk(chunk => UI.renderTranscriptChunk(chunk, MY_NAME));
+
     } catch (e) {
       UI.log('Boot error: ' + e.message, 'error');
       console.error(e);
@@ -68,12 +75,26 @@
     try {
       localStream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
-        audio: { echoCancellation: true, noiseSuppression: true },
+        audio: {
+          echoCancellation:   false,  // these aggressively suppress phone-speaker-through-mic
+          noiseSuppression:   false,  // and any non-close-mic audio — kills transcription
+          autoGainControl:    false,  // let Whisper see the raw signal
+          channelCount:       1,
+        },
       });
       UI.setLocalVideo(localStream);
       UI.log('Camera ready', 'ok');
     } catch (e) {
-      UI.log('No camera — audio only', 'warn');
+      UI.log('Camera failed: ' + e.message, 'warn');
+      // Fallback: try audio-only with same constraints
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        });
+        UI.log('Audio-only mode', 'warn');
+      } catch (e2) {
+        UI.log('Microphone unavailable: ' + e2.message, 'warn');
+      }
     }
   }
 
@@ -96,6 +117,33 @@
     signaling.send('announce', { name: MY_NAME });
     UI.setStatus('waiting', 'Waiting for peers…');
     UI.log('Announced → room ' + ROOM_ID, 'info');
+  }
+
+  // ── Transcription ──────────────────────────────────────────────
+
+  function initTranscription() {
+    transcriptMgr = new TranscriptionManager(localStream, MY_NAME, {
+      onChunk(chunk) {
+        TranscriptStore.push(chunk);
+        broadcastTranscript(chunk);
+      },
+      onModelProgress(pct) { UI.setTranscriptModelProgress(pct); },
+      onModelReady(id, backend) {
+        UI.log(
+          'Transcription ready ✓ [Moonshine · ' + (backend || 'wasm').toUpperCase() + ']',
+          'ok'
+        );
+        UI.setTranscriptModelReady();
+      },
+      onError(msg) { UI.log('Transcription: ' + msg, 'warn'); },
+    });
+  }
+
+  function broadcastTranscript(chunk) {
+    const packed = JSON.stringify(chunk);
+    peers.forEach(({ conn, ready }) => {
+      if (ready && conn) conn.send(PS.DC.TRANSCRIPT, packed);
+    });
   }
 
   // ── Peer discovery ─────────────────────────────────────────────
@@ -290,6 +338,14 @@
     c.onChannel(PS.DC.FILE, data => peers.get(remotePeerId)?.fileXfer?.receive(data));
     c.onChannel(PS.DC.CTRL, data => handleCtrl(data, c, remotePeerId));
 
+    // Remote peer's transcript chunks — store locally and render in feed tab.
+    c.onChannel(PS.DC.TRANSCRIPT, data => {
+      try {
+        const chunk = JSON.parse(data);
+        TranscriptStore.push(chunk);
+      } catch (_) {}
+    });
+
     return c;
   }
 
@@ -351,6 +407,40 @@
     sessionStart = null;
     UI.disableSession();
     UI.clearAllRemoteTiles();
+
+    // Stop live transcription.
+    if (transcriptMgr) { transcriptMgr.stop(); transcriptMgr = null; }
+
+    // Fire post-meeting summariser if there is transcript content.
+    const transcript = TranscriptStore.getAll();
+    if (transcript.length > 0) {
+      _triggerSummarizer(transcript);
+      TranscriptStore.clear();
+    }
+  }
+
+  function _triggerSummarizer(transcript) {
+    UI.showSummaryModal('generating');
+    const worker = new Worker(
+      'js/workers/summarizer.worker.js',
+      { type: 'module' }
+    );
+    worker.onmessage = ({ data }) => {
+      if (data.type === 'progress') {
+        UI.updateSummaryProgress(data.message);
+      } else if (data.type === 'result') {
+        UI.showSummaryModal('done', data.result);
+        worker.terminate();
+      } else if (data.type === 'error') {
+        UI.showSummaryModal('error', { error: data.message });
+        worker.terminate();
+      }
+    };
+    worker.onerror = e => {
+      UI.showSummaryModal('error', { error: e.message || 'Unknown worker error' });
+      worker.terminate();
+    };
+    worker.postMessage({ transcript, models: selectModels() });
   }
 
   function _disableSessionIfEmpty() {
@@ -458,7 +548,51 @@
     localStream?.getTracks().forEach(t => t.stop());
   });
 
-  window._ps = { broadcastDoc, broadcastChat, sendFile, toggleMute, toggleCam };
+  window._ps = {
+    broadcastDoc, broadcastChat, sendFile, toggleMute, toggleCam,
+
+    toggleTranscription() {
+      const btn = document.getElementById('btnToggleTranscript');
+
+      if (!transcriptMgr) {
+        UI.log('Whisper still loading — please wait', 'warn');
+        if (btn) {
+          const orig = btn.textContent;
+          btn.textContent = '⏳ Loading…';
+          setTimeout(() => { btn.textContent = orig; }, 2000);
+        }
+        return;
+      }
+
+      if (transcriptMgr.isPaused()) {
+        transcriptMgr.resume();
+        _transcribing = true;
+        if (btn) {
+          btn.textContent = '⏹ Stop Transcribing';
+          btn.classList.remove('tx-btn-paused');
+          btn.classList.add('tx-btn-recording');
+        }
+        UI.log('Transcription resumed', 'ok');
+      } else {
+        transcriptMgr.pause();
+        _transcribing = false;
+        if (btn) {
+          btn.textContent = '🎙 Resume Transcribing';
+          btn.classList.remove('tx-btn-recording');
+          btn.classList.add('tx-btn-paused');
+        }
+        UI.log('Transcription paused', 'warn');
+      }
+    },
+
+    endMeeting() {
+      signaling?.send('leaving', {});
+      _teardownAll();
+      signaling?.destroy();
+      localStream?.getTracks().forEach(t => t.stop());
+      UI.setStatus('waiting', 'Session ended');
+    },
+  };
 
   // ══════════════════════════════════════════════════════════════
   // UI
@@ -531,6 +665,23 @@
 
       document.getElementById('btnMute').addEventListener('click', toggleMute);
       document.getElementById('btnCam').addEventListener('click', toggleCam);
+
+      document.getElementById('btnEndMeeting').addEventListener('click', () => {
+        window._ps.endMeeting();
+      });
+
+      document.getElementById('btnToggleTranscript').addEventListener('click', () => {
+        window._ps.toggleTranscription();
+      });
+
+      document.getElementById('btnSummarise').addEventListener('click', () => {
+        const transcript = TranscriptStore.getAll();
+        if (transcript.length === 0) {
+          UI.log('No transcript to summarise yet', 'warn');
+          return;
+        }
+        _triggerSummarizer(transcript);
+      });
 
       document.querySelectorAll('.tab').forEach(t =>
         t.addEventListener('click', () => this.switchTab(t.dataset.tab)));
@@ -745,6 +896,177 @@ setPeerVideo(peerId, stream) {
         t.classList.toggle('active', t.dataset.tab === tab));
       document.querySelectorAll('.tab-pane').forEach(p =>
         p.classList.toggle('active', p.dataset.pane === tab));
+    },
+
+    // ── Transcript / Live Feed ──────────────────────────────────
+
+    setTranscriptModelProgress(pct) {
+      const bar   = document.getElementById('whisperBar');
+      const label = document.getElementById('whisperLabel');
+      if (bar)   bar.style.width   = pct + '%';
+      if (label) label.textContent = `Loading Moonshine… ${pct}%`;
+    },
+
+    setTranscriptModelReady() {
+      const row  = document.getElementById('whisperLoader');
+      if (row)  row.hidden = true;
+      const note = document.getElementById('transcriptNote');
+      if (note) note.hidden = false;
+    },
+
+    renderTranscriptChunk(chunk, myName) {
+      const feed = document.getElementById('transcriptFeed');
+      if (!feed) return;
+
+      // Remove any interim preview bubble
+      const existing = feed.querySelector('.tx-interim');
+      if (existing) existing.remove();
+
+      const isSelf = chunk.speaker === myName;
+      const ts     = new Date(chunk.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      const div = document.createElement('div');
+      div.className = 'tx-chunk ' + (isSelf ? 'tx-self' : 'tx-remote');
+      div.innerHTML =
+        '<div class="tx-meta">' +
+          '<span class="tx-speaker">' + escHtml(chunk.speaker) + '</span>' +
+          '<span class="tx-time">' + ts + '</span>' +
+        '</div>' +
+        '<div class="tx-bubble">' + escHtml(chunk.text) + '</div>';
+
+      feed.appendChild(div);
+      feed.scrollTop = feed.scrollHeight;
+    },
+
+    renderInterimChunk(text) {
+      const feed = document.getElementById('transcriptFeed');
+      if (!feed) return;
+
+      let interim = feed.querySelector('.tx-interim');
+      if (!interim) {
+        interim = document.createElement('div');
+        interim.className = 'tx-chunk tx-self tx-interim';
+        feed.appendChild(interim);
+      }
+      interim.innerHTML =
+        '<div class="tx-bubble tx-bubble-interim">' + escHtml(text) + '</div>';
+      feed.scrollTop = feed.scrollHeight;
+    },
+
+    // ── Summary modal ───────────────────────────────────────────
+
+    showSummaryModal(state, result) {
+      const modal = document.getElementById('summaryModal');
+      if (!modal) return;
+      modal.hidden = false;
+
+      const body    = document.getElementById('summaryBody');
+      const spinner = document.getElementById('summarySpinner');
+      const content = document.getElementById('summaryContent');
+
+      if (state === 'generating') {
+        spinner.hidden = false;
+        content.hidden = true;
+        document.getElementById('summaryProgress').textContent = 'Initialising…';
+        return;
+      }
+
+      spinner.hidden = true;
+      content.hidden = false;
+
+      if (state === 'error') {
+        content.innerHTML =
+          '<div class="sum-error">⚠️ Summarisation failed: ' +
+          escHtml(result.error) + '</div>';
+        return;
+      }
+
+      // ── Render minutes, actions, references ─────────────────
+      const { minutes, actions, references, speakers, duration, chunkCount } = result;
+
+      const speakerTags = speakers
+        .map(s => `<span class="sum-speaker-chip">${escHtml(s)}</span>`)
+        .join('');
+
+      const actionHtml = actions.length
+        ? actions.map(a => `<li>${escHtml(a)}</li>`).join('')
+        : '<li class="sum-empty">No action items detected.</li>';
+
+      const refHtml = references.length
+        ? references.map(r =>
+            `<li><a href="${escHtml(r)}" target="_blank" rel="noopener">${escHtml(r)}</a></li>`
+          ).join('')
+        : '<li class="sum-empty">No URLs mentioned.</li>';
+
+      content.innerHTML = `
+        <div class="sum-meta">
+          <span>🕐 ${duration} min</span>
+          <span>🎙️ ${chunkCount} segments</span>
+          <span>👥 ${speakerTags}</span>
+        </div>
+
+        <section class="sum-section">
+          <h3>📋 Meeting Minutes</h3>
+          <p>${escHtml(minutes || 'Not enough content to summarise.')}</p>
+        </section>
+
+        <section class="sum-section">
+          <h3>✅ Action Items</h3>
+          <ul>${actionHtml}</ul>
+        </section>
+
+        <section class="sum-section">
+          <h3>🔗 References</h3>
+          <ul>${refHtml}</ul>
+        </section>
+      `;
+
+      // Bind export button
+      document.getElementById('btnExportSummary').onclick = () => {
+        this._exportSummary(result);
+      };
+    },
+
+    updateSummaryProgress(msg) {
+      const el = document.getElementById('summaryProgress');
+      if (el) el.textContent = msg;
+    },
+
+    _exportSummary(result) {
+      const { minutes, actions, references, speakers, duration, rawTranscript } = result;
+
+      const transcriptHtml = rawTranscript
+        .map(c => {
+          const ts = new Date(c.timestamp).toLocaleTimeString();
+          return `<p><strong>${escHtml(c.speaker)}</strong> <span style="color:#888;font-size:11px">${ts}</span><br>${escHtml(c.text)}</p>`;
+        }).join('');
+
+      const actionsHtml = actions.length
+        ? `<ul>${actions.map(a => `<li>${escHtml(a)}</li>`).join('')}</ul>`
+        : '<p><em>None detected</em></p>';
+
+      const refsHtml = references.length
+        ? `<ul>${references.map(r => `<li>${escHtml(r)}</li>`).join('')}</ul>`
+        : '<p><em>None</em></p>';
+
+      const html = `
+        <html><head><meta charset="utf-8">
+        <style>body{font-family:sans-serif;max-width:800px;margin:40px auto;line-height:1.6}
+        h1{color:#059669}h2{color:#0ea5e9;border-bottom:1px solid #eee;padding-bottom:8px}
+        p,li{font-size:14px}strong{color:#133a27}</style></head>
+        <body>
+          <h1>PeerSpace — Meeting Summary</h1>
+          <p><strong>Duration:</strong> ${duration} min &nbsp; <strong>Speakers:</strong> ${speakers.map(s => escHtml(s)).join(', ')}</p>
+          <h2>📋 Minutes</h2><p>${escHtml(minutes || '—')}</p>
+          <h2>✅ Action Items</h2>${actionsHtml}
+          <h2>🔗 References</h2>${refsHtml}
+          <h2>📝 Full Transcript</h2>${transcriptHtml}
+        </body></html>`;
+
+      const src = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(html);
+      Object.assign(document.createElement('a'),
+        { href: src, download: 'PeerSpace_Summary.doc' }).click();
+      this.log('Summary exported', 'ok');
     },
   };
 
