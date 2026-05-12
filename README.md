@@ -22,11 +22,11 @@ The system utilizes a hybrid architecture: centralized signaling for discovery, 
 
 ### Connection Sequence (UML)
 
-![Sequence Diagram](images/WebRTC Peer-to-Peer Sync-2026-05-12-180018.png)
+![Sequence Diagram](images/WebRTC%20Peer-to-Peer%20Sync-2026-05-12-180018.png)
 
 ### Client Component Structure (UML)
 
-![Sequence Diagram](images/WebRTC Peer-to-Peer Sync-2026-05-12-180309.png)
+![Component Diagram](images/WebRTC%20Peer-to-Peer%20Sync-2026-05-12-180309.png)
 
 
 ## Getting Started
