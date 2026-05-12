@@ -11,18 +11,17 @@
  * Real-time capable on any modern laptop.
  */
 
-import { AutoTokenizer, AutoProcessor, MoonshineForConditionalGeneration, env }
-  from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.0/dist/transformers.min.js';
+import { AutoTokenizer, AutoProcessor, AutoModelForSpeechSeq2Seq, env }
+  from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@latest/dist/transformers.min.js';
 
 env.allowLocalModels = false;
 env.useBrowserCache  = true;
-
 
 let _tokenizer = null;
 let _processor = null;
 let _model     = null;
 
-// v3 backend config
+// v3/v4 backend config
 env.backends.onnx.wasm.numThreads =
   typeof navigator !== 'undefined'
     ? Math.min(navigator.hardwareConcurrency || 2, 4)
@@ -72,7 +71,7 @@ async function loadModel(modelId) {
   [_tokenizer, _processor, _model] = await Promise.all([
     AutoTokenizer.from_pretrained(modelId),
     AutoProcessor.from_pretrained(modelId),
-    MoonshineForConditionalGeneration.from_pretrained(modelId, opts),
+    AutoModelForSpeechSeq2Seq.from_pretrained(modelId, opts), // Replaced specific class with standard AutoModel
   ]);
 
   self.postMessage({ type: 'ready', modelId, backend: _backend });

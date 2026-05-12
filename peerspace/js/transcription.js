@@ -124,14 +124,30 @@ class TranscriptionManager {
   }
 
   async _flush(reason) {
-    const frames = this._segFrames.splice(0);
-    this._segMs  = 0;
-    if (frames.length * this._frameMs < MIN_SEGMENT_MS) return;
+    if (this._segFrames.length === 0) return;
 
-    const totalLen = frames.reduce((s, f) => s + f.length, 0);
+    let framesToProcess;
+
+    if (reason === 'interval' && this._inSpeech) {
+      // Retain the last 500ms (5 frames) to bridge word boundaries cleanly
+      const keepFrames = Math.floor(500 / this._frameMs); 
+      if (this._segFrames.length <= keepFrames) return; // Not enough data to safely split
+
+      framesToProcess = this._segFrames.slice(0, -keepFrames);
+      this._segFrames = this._segFrames.slice(-keepFrames);
+      this._segMs = this._segFrames.length * this._frameMs;
+    } else {
+      // Natural silence or stop, process and empty completely
+      framesToProcess = this._segFrames.splice(0);
+      this._segMs = 0;
+    }
+
+    if (framesToProcess.length * this._frameMs < MIN_SEGMENT_MS) return;
+
+    const totalLen = framesToProcess.reduce((s, f) => s + f.length, 0);
     const raw      = new Float32Array(totalLen);
     let   off      = 0;
-    for (const f of frames) { raw.set(f, off); off += f.length; }
+    for (const f of framesToProcess) { raw.set(f, off); off += f.length; }
 
     try {
       const sr        = this._nativeSR || this._ctx.sampleRate;
