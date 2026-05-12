@@ -161,17 +161,15 @@
         <!-- ── Live Feed / Transcript tab ─────────────────────── -->
         <div class="tab-pane transcript-pane" data-pane="transcript">
 
-          <!-- Whisper model loader bar — hidden once model is warm -->
           <div id="whisperLoader" class="whisper-loader">
-            <span id="whisperLabel" class="whisper-label">Loading Whisper…</span>
+            <span id="whisperLabel" class="whisper-label">Loading Moonshine…</span>
             <div class="whisper-track">
               <div id="whisperBar" class="whisper-fill"></div>
             </div>
           </div>
 
-          <!-- Shown once Whisper is ready -->
           <div id="transcriptNote" class="transcript-note" hidden>
-            🎙️ Transcribing live — chunks appear every ~6 s
+            🎙️ Live — transcribing locally on your device
           </div>
 
           <!-- Rolling transcript feed -->
@@ -220,16 +218,16 @@
   </div>
 </div>
 
-<script src="js/config.js"></script>
-<script src="js/signaling.js"></script>
-<script src="js/connection.js"></script>
-<script src="js/doc-sync.js"></script>
-<script src="js/chat.js"></script>
-<script src="js/file-transfer.js"></script>
+<script src="js/config.js?v=12"></script>
+<script src="js/signaling.js?v=12"></script>
+<script src="js/connection.js?v=12"></script>
+<script src="js/doc-sync.js?v=12"></script>
+<script src="js/chat.js?v=12"></script>
+<script src="js/file-transfer.js?v=12"></script>
 <script src="js/model-config.js"></script>
-<script src="js/transcript-store.js"></script>
-<script src="js/transcription.js"></script>
-<script src="js/room.js"></script>
+<script src="js/transcript-store.js?v=12"></script>
+<script src="js/transcription.js?v=12"></script>
+<script src="js/room.js?v=12"></script>
 
 </body>
 </html>

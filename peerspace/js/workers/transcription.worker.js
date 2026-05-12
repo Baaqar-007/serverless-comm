@@ -1,122 +1,99 @@
 /**
- * transcription.worker.js — Whisper ASR inference worker
+ * transcription.worker.js v12 — Moonshine ASR
  *
- * Model: whisper-small.en  (~244MB, English-only, 4× better than base.en)
- * Inference: ONNX WASM with max threads for speed
+ * Model: onnx-community/moonshine-base-ONNX
+ * - 5-15x faster than Whisper (no 30s zero-padding)
+ * - WebGPU accelerated → WASM fallback
+ * - 100% local, zero data leaves device
+ * - ~120MB WASM / ~150MB WebGPU
  *
- * Post-processing:
- *   - Strips Whisper hallucination tokens (>>, [Music], [Blank_Audio], etc.)
- *   - Discards outputs that are pure repetition or too short to be real speech
- *   - Strips common silent-audio hallucinations ("Thank you.", "you", etc.)
+ * At 5s chunks: ~300-500ms on WebGPU, ~1-2s on WASM.
+ * Real-time capable on any modern laptop.
  */
 
-import { pipeline, env }
-  from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js';
+import { AutoTokenizer, AutoProcessor, MoonshineForConditionalGeneration, env }
+  from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.0/dist/transformers.min.js';
 
 env.allowLocalModels = false;
 env.useBrowserCache  = true;
-// Use all available threads for faster WASM inference
-env.backends.onnx.wasm.numThreads = Math.min(navigator.hardwareConcurrency || 2, 4);
 
-let transcriber = null;
+
+let _tokenizer = null;
+let _processor = null;
+let _model     = null;
+
+// v3 backend config
+env.backends.onnx.wasm.numThreads =
+  typeof navigator !== 'undefined'
+    ? Math.min(navigator.hardwareConcurrency || 2, 4)
+    : 2;
+
+let transcriber    = null;
 let _loadedModelId = null;
+let _backend       = 'wasm';
 
-// ── Known Whisper hallucination strings on silence / near-silence ────────────
-const HALLUCINATION_EXACT = new Set([
-  'you', 'thank you', 'thanks', 'thanks for watching', 'thanks for watching!',
-  'thank you.', 'thank you!', 'thank you so much', 'please subscribe',
-  'bye', 'bye!', 'goodbye', 'see you', '.', '..', '...', 'uh', 'um',
-  'the', 'a', 'i', 'and', 'or', 'is', 'it', 'in', 'of', 'to', 'we',
+// ── Hallucination filter ──────────────────────────────────────────────────────
+
+const JUNK = new Set([
+  'thank you.', 'thank you', 'thanks.', 'thanks', 'thanks for watching.',
+  'please subscribe.', 'bye.', 'bye', 'goodbye.', 'you.',
+  '[blank_audio]', '[music]', '[applause]', '[silence]', '.', '...', '',
 ]);
 
-const HALLUCINATION_PATTERNS = [
-  /^>+$/,                         // >> or >>>
-  /^\[.*\]$/,                     // [Music], [Applause], [BLANK_AUDIO]
-  /^♪.*♪$/,                       // song lyrics markers
-  /^(\w+)( \1){3,}$/i,            // word repeated 4+ times
-];
-
-function filterHallucination(text) {
-  // Strip Whisper bracket tokens and >> markers
-  text = text
-    .replace(/\[.*?\]/g, '')      // [Music], [BLANK_AUDIO], etc.
-    .replace(/>>+/g, '')          // >> >>>
-    .replace(/♪[^♪]*♪?/g, '')    // ♪ ... ♪
-    .trim();
-
-  if (!text) return null;
-
-  const lower = text.toLowerCase().replace(/[.,!?]/g, '').trim();
-
-  // Exact hallucination match
-  if (HALLUCINATION_EXACT.has(lower)) return null;
-
-  // Pattern match
-  if (HALLUCINATION_PATTERNS.some(rx => rx.test(lower))) return null;
-
-  // Too short after cleaning — likely garbage
-  if (text.length < 6) return null;
-
-  // Very short single-word outputs are almost always hallucinations
-  const words = text.trim().split(/\s+/);
-  if (words.length === 1 && text.length < 8) return null;
-
-  return text;
+function clean(raw) {
+  if (!raw) return null;
+  let t = raw.replace(/\[.*?\]/g, '').replace(/>>+/g, '').trim();
+  if (!t || JUNK.has(t.toLowerCase().replace(/[.,!?]/g, '').trim())) return null;
+  if (t.length < 3) return null;
+  return t;
 }
 
-// ── Model loader ─────────────────────────────────────────────────────────────
+// ── Loader ────────────────────────────────────────────────────────────────────
 
 async function loadModel(modelId) {
   _loadedModelId = modelId;
-  transcriber = await pipeline(
-    'automatic-speech-recognition',
-    modelId,
-    {
-      quantized: true,
-      progress_callback(p) {
-        if (p.status === 'downloading') {
-          const pct = p.total ? Math.round((p.loaded / p.total) * 100) : 0;
-          self.postMessage({ type: 'progress', pct, message: `Downloading ${modelId}… ${pct}%` });
-        }
-      },
-    }
-  );
-  self.postMessage({ type: 'ready', modelId: _loadedModelId });
-  console.log('[Whisper worker] loaded:', _loadedModelId);
+
+  const hasWebGPU = typeof navigator !== 'undefined' &&
+    'gpu' in navigator &&
+    (await navigator.gpu?.requestAdapter().catch(() => null)) != null;
+  _backend = hasWebGPU ? 'webgpu' : 'wasm';
+
+  const opts = {
+    dtype: { encoder_model: 'fp32', decoder_model_merged: 'q4' },
+    device: _backend,
+    progress_callback(p) {
+      if (p.status === 'downloading') {
+        const pct = p.total ? Math.round((p.loaded / p.total) * 100) : 0;
+        self.postMessage({ type: 'progress', pct, message: `Downloading Moonshine… ${pct}%` });
+      }
+    },
+  };
+
+  [_tokenizer, _processor, _model] = await Promise.all([
+    AutoTokenizer.from_pretrained(modelId),
+    AutoProcessor.from_pretrained(modelId),
+    MoonshineForConditionalGeneration.from_pretrained(modelId, opts),
+  ]);
+
+  self.postMessage({ type: 'ready', modelId, backend: _backend });
 }
 
-// ── Inference ────────────────────────────────────────────────────────────────
+// ── Inference ─────────────────────────────────────────────────────────────────
 
 async function transcribe(audio) {
-  if (!transcriber) {
+  if (!_model) {
     self.postMessage({ type: 'error', message: 'Model not loaded yet.' });
     return;
   }
 
-  const result = await transcriber(audio, {
-    task:                              'transcribe',
-    return_timestamps:                 false,
-    // Beam search — significantly more accurate than greedy
-    num_beams:                         5,
-    // Temperature: start at 0 (deterministic), fall back to sampling on low-confidence
-    temperature:                       0,
-    temperature_increment_on_fallback: 0.2,
-    // Discard windows Whisper classifies as non-speech
-    no_speech_threshold:               0.8,  // lenient for attenuated audio
-    // Discard if output looks repetitive / compressed (hallucination signal)
-    compression_ratio_threshold:       2.4,
-    // Discard low log-probability outputs
-    logprob_threshold:                 -1.0,
-    // Suppress common hallucination tokens at the decoding level
-    suppress_tokens: [-1],
-  });
-
-  const raw  = result?.text || '';
-  const text = filterHallucination(raw);
+  const inputs   = await _processor(audio, { sampling_rate: 16000 });
+  const tokens   = await _model.generate({ ...inputs });
+  const decoded  = _tokenizer.batch_decode(tokens, { skip_special_tokens: true });
+  const text     = clean(decoded[0] || '');
   if (text) self.postMessage({ type: 'transcript', text });
 }
 
-// ── Message handler ──────────────────────────────────────────────────────────
+// ── Handler ───────────────────────────────────────────────────────────────────
 
 self.onmessage = async ({ data }) => {
   try {

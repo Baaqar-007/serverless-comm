@@ -65,7 +65,9 @@ function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
  */
 function selectModels() {
   return {
-    transcription: 'Xenova/whisper-small.en',  // 244MB — 4× better than base.en
+    // Moonshine: 5-15x faster than Whisper, processes exact audio duration,
+    // WebGPU-accelerated, 100% local — no data leaves the device.
+    transcription: 'onnx-community/moonshine-base-ONNX',
     summarization: 'Xenova/distilbart-cnn-6-6',
   };
 }

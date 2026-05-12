@@ -128,8 +128,14 @@
         broadcastTranscript(chunk);
       },
       onModelProgress(pct) { UI.setTranscriptModelProgress(pct); },
-      onModelReady(modelId) { UI.log('Whisper ready ✓ [' + (modelId || 'unknown') + ']', 'ok'); UI.setTranscriptModelReady(); },
-      onError(msg)         { UI.log('Transcription: ' + msg, 'warn'); },
+      onModelReady(id, backend) {
+        UI.log(
+          'Transcription ready ✓ [Moonshine · ' + (backend || 'wasm').toUpperCase() + ']',
+          'ok'
+        );
+        UI.setTranscriptModelReady();
+      },
+      onError(msg) { UI.log('Transcription: ' + msg, 'warn'); },
     });
   }
 
@@ -898,7 +904,7 @@ setPeerVideo(peerId, stream) {
       const bar   = document.getElementById('whisperBar');
       const label = document.getElementById('whisperLabel');
       if (bar)   bar.style.width   = pct + '%';
-      if (label) label.textContent = `Loading Whisper… ${pct}%`;
+      if (label) label.textContent = `Loading Moonshine… ${pct}%`;
     },
 
     setTranscriptModelReady() {
@@ -909,8 +915,12 @@ setPeerVideo(peerId, stream) {
     },
 
     renderTranscriptChunk(chunk, myName) {
-      const feed  = document.getElementById('transcriptFeed');
+      const feed = document.getElementById('transcriptFeed');
       if (!feed) return;
+
+      // Remove any interim preview bubble
+      const existing = feed.querySelector('.tx-interim');
+      if (existing) existing.remove();
 
       const isSelf = chunk.speaker === myName;
       const ts     = new Date(chunk.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -925,6 +935,21 @@ setPeerVideo(peerId, stream) {
         '<div class="tx-bubble">' + escHtml(chunk.text) + '</div>';
 
       feed.appendChild(div);
+      feed.scrollTop = feed.scrollHeight;
+    },
+
+    renderInterimChunk(text) {
+      const feed = document.getElementById('transcriptFeed');
+      if (!feed) return;
+
+      let interim = feed.querySelector('.tx-interim');
+      if (!interim) {
+        interim = document.createElement('div');
+        interim.className = 'tx-chunk tx-self tx-interim';
+        feed.appendChild(interim);
+      }
+      interim.innerHTML =
+        '<div class="tx-bubble tx-bubble-interim">' + escHtml(text) + '</div>';
       feed.scrollTop = feed.scrollHeight;
     },
 
