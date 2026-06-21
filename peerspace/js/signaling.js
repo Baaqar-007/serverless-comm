@@ -20,7 +20,7 @@ class Signaling {
     this._peerId   = peerId;
     this._handlers = {};
 
-    const SERVER_URL = `http://${window.location.hostname}:3000`;
+    const SERVER_URL = 'https://peerspace-k66e.onrender.com/';
     if (typeof io === 'undefined') {
       throw new Error('Socket.io client library is missing.');
     }
