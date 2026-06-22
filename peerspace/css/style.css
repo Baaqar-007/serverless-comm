@@ -274,7 +274,38 @@ body {
 .status-waiting   { background: linear-gradient(135deg, #fcd34d, #f59e0b); }
 .status-connected { background: linear-gradient(135deg, #6ee7b7, #10b981); }
 .status-error     { background: linear-gradient(135deg, #fca5a5, #ef4444); }
+/* ── Network micro-badge (solarpunk glass) ──────────────────── */
+.network-badge {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 4px 14px;
+  border-radius: var(--rad-lg);
+  background: rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: var(--shadow-btn);
+  transition: var(--smooth);
+  text-transform: uppercase;
+  color: #fff;
+}
 
+.network-badge.direct {
+  color: #6ee7b7;           /* matches your "connected" status gradient start */
+  border-color: rgba(16, 185, 129, 0.25);
+  background: rgba(16, 185, 129, 0.06);
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.04), var(--shadow-btn);
+}
+
+.network-badge.relayed {
+  color: #fcd34d;           /* matches your "waiting" status gradient start */
+  border-color: rgba(245, 158, 11, 0.25);
+  background: rgba(245, 158, 11, 0.06);
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.04), var(--shadow-btn);
+}
 /* ── Body layout ────────────────────────────────────────────── */
 .body {
   flex: 1;

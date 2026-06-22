@@ -330,6 +330,17 @@
     c.on('channel-error',  ({ label, error }) =>
       UI.log('Channel error [' + label + ']: ' + error, 'error'));
 
+     // ── NEW: Network status from connection.js ─────────────────────
+    c.on('network-status', (status) => {
+      const badge = document.getElementById('networkBadge');
+      if (!badge) return;
+
+      badge.hidden = false;
+      const isDirect = (status === 'Direct P2P');
+      badge.textContent = isDirect ? '⡀ Direct' : '⏣ Relayed';
+      badge.className = 'network-badge ' + (isDirect ? 'direct' : 'relayed');
+    });
+
     // doc and chat receive handlers delegate to shared managers
     c.onChannel(PS.DC.DOC,  data => docSync?.receive(data));
     c.onChannel(PS.DC.CHAT, data => chatMgr?.receive(data));

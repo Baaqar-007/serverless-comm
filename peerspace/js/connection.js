@@ -89,6 +89,29 @@ class Connection {
         setTimeout(emit, 200);
       }
     };
+    // Add this inside _bindPC(), after pc.ontrack = ... 
+    pc.addEventListener('connectionstatechange', async () => {
+      if (pc.connectionState === 'connected') {
+        const stats = await pc.getStats();
+        let isRelayed = false;
+
+        stats.forEach(report => {
+          // Look for the active candidate pair
+          if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+            const localCandidate = stats.get(report.localCandidateId);
+            // If the local candidate type is 'relay', the TURN server is active
+            if (localCandidate && localCandidate.candidateType === 'relay') {
+              isRelayed = true;
+            }
+          }
+        });
+
+        // Dispatch the network status using your built-in event system
+        const status = isRelayed ? 'Relayed (TURN)' : 'Direct P2P';
+        console.log(`[Network] Connection established. ${status}`);
+        this._emit('network-status', status);
+      }
+    });
   }
 
   // ── DataChannel wiring ─────────────────────────────────────────
