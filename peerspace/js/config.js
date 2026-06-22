@@ -8,6 +8,29 @@ const PS = Object.freeze({
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
+      {
+        urls: "stun:stun.relay.metered.ca:80",
+      },
+      {
+        urls: "turn:global.relay.metered.ca:80",
+        username: "e5b32916d49eafeb4be017c0",
+        credential: "8F08omBCRLzJUWEP",
+      },
+      {
+        urls: "turn:global.relay.metered.ca:80?transport=tcp",
+        username: "e5b32916d49eafeb4be017c0",
+        credential: "8F08omBCRLzJUWEP",
+      },
+      {
+        urls: "turn:global.relay.metered.ca:443",
+        username: "e5b32916d49eafeb4be017c0",
+        credential: "8F08omBCRLzJUWEP",
+      },
+      {
+        urls: "turns:global.relay.metered.ca:443?transport=tcp",
+        username: "e5b32916d49eafeb4be017c0",
+        credential: "8F08omBCRLzJUWEP",
+      }
     ]
   },
   // DataChannel labels
