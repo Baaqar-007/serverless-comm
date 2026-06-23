@@ -110,8 +110,12 @@
       .on('offer',       handleOffer)
       .on('answer',      handleAnswer)
       .on('ice',         handleIce)
-      .on('room-full',   () => UI.log('Room is full (max 4 peers)', 'error'));
-  }
+      .on('room-full', () => {
+        UI.log('Room is full (max 4 peers)', 'error');
+        alert('This room is currently at maximum capacity.');
+        window.location.href = 'index.html';
+      });
+}
 
   function announce() {
     signaling.send('announce', { name: MY_NAME });
