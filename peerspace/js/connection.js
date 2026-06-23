@@ -125,8 +125,11 @@ class Connection {
 
     // ── ADDED: handle renegotiation (triggered by restartIce) ────
     pc.addEventListener('negotiationneeded', async () => {
-      if (this._isNegotiating) return;
-      this._isNegotiating = true;
+    // Only handle renegotiation on already-connected peers (e.g. ICE restart).
+    // During initial setup, offer() manages this explicitly.
+    // Without this guard, addStream() + offer() both send offers → broken state.
+    if (this._isNegotiating || pc.connectionState !== 'connected') return;
+    this._isNegotiating = true;
 
       try {
         const offer = await pc.createOffer();
