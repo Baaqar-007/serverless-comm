@@ -34,6 +34,10 @@ class Connection {
     // ── ontrack deduplication ────────────────────────────────────
     this._emittedStreams = new Set();
 
+    // ── ADDED: heartbeat & negotiation guards ────────────────────
+    this._heartbeatInterval = null;
+    this._isNegotiating     = false;
+
     this.pc = new RTCPeerConnection(PS.ICE);
     this._bindPC();
   }
@@ -89,27 +93,50 @@ class Connection {
         setTimeout(emit, 200);
       }
     };
-    // Add this inside _bindPC(), after pc.ontrack = ... 
+
+    // ── ADDED: network status detection (P2P vs TURN) ────────────
     pc.addEventListener('connectionstatechange', async () => {
       if (pc.connectionState === 'connected') {
         const stats = await pc.getStats();
         let isRelayed = false;
 
         stats.forEach(report => {
-          // Look for the active candidate pair
           if (report.type === 'candidate-pair' && report.state === 'succeeded') {
             const localCandidate = stats.get(report.localCandidateId);
-            // If the local candidate type is 'relay', the TURN server is active
             if (localCandidate && localCandidate.candidateType === 'relay') {
               isRelayed = true;
             }
           }
         });
 
-        // Dispatch the network status using your built-in event system
         const status = isRelayed ? 'Relayed (TURN)' : 'Direct P2P';
         console.log(`[Network] Connection established. ${status}`);
         this._emit('network-status', status);
+      }
+    });
+
+    // ── ADDED: ICE Restart on failure ────────────────────────────
+    pc.addEventListener('connectionstatechange', () => {
+      if (pc.connectionState === 'failed') {
+        console.warn('[Connection] Connection failed. Attempting ICE Restart...');
+        pc.restartIce();
+      }
+    });
+
+    // ── ADDED: handle renegotiation (triggered by restartIce) ────
+    pc.addEventListener('negotiationneeded', async () => {
+      if (this._isNegotiating) return;
+      this._isNegotiating = true;
+
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        this._sig.send('offer', { sdp: pc.localDescription }, this._remoteId);
+        console.log('[Connection] Renegotiation offer sent.');
+      } catch (e) {
+        console.error('[Connection] Renegotiation failed:', e);
+      } finally {
+        this._isNegotiating = false;
       }
     });
   }
@@ -120,9 +147,20 @@ class Connection {
     dc.binaryType = 'arraybuffer';
     this._channels[dc.label] = dc;
 
+    // ── Common onopen / onclose (with heartbeat for control) ────
     dc.onopen = () => {
       this._openChannels.add(dc.label);
       this._emit('channel-open', dc.label);
+
+      // ── ADDED: heartbeat for control channel ──────────────────
+      if (dc.label === PS.DC.CTRL) {
+        console.log('[Connection] Control channel open. Starting heartbeat.');
+        this._heartbeatInterval = setInterval(() => {
+          if (dc.readyState === 'open') {
+            dc.send(JSON.stringify({ t: 'ping', ts: Date.now() }));
+          }
+        }, 15000);
+      }
 
       if (this._openChannels.size === Object.keys(PS.DC).length) {
         this._emit('channels-ready', null);
@@ -132,6 +170,12 @@ class Connection {
     dc.onclose = () => {
       this._openChannels.delete(dc.label);
       this._emit('channel-close', dc.label);
+
+      // ── ADDED: clear heartbeat if control ─────────────────────
+      if (dc.label === PS.DC.CTRL) {
+        clearInterval(this._heartbeatInterval);
+        this._heartbeatInterval = null;
+      }
     };
 
     dc.onmessage = ({ data }) => {
@@ -235,6 +279,11 @@ class Connection {
   getStats() { return this.pc.getStats(); }
 
   close() {
+    // ── ADDED: clear heartbeat before closing ────────────────────
+    if (this._heartbeatInterval) {
+      clearInterval(this._heartbeatInterval);
+      this._heartbeatInterval = null;
+    }
     Object.values(this._channels).forEach(dc => { try { dc.close(); } catch (_) {} });
     try { this.pc.close(); } catch (_) {}
   }
