@@ -300,9 +300,16 @@
 
     c.on('ice-state', state => {
       UI.log('ICE [' + remotePeerId.slice(0,8) + '] → ' + state, 'signal');
-      if (state === 'failed' || state === 'disconnected' || state === 'closed') {
+      if (state === 'failed' || state === 'closed') {
         UI.log('Connection lost to ' + remotePeerId.slice(0,8), 'warn');
         handlePeerLeft({ from: remotePeerId });
+      } else if (state === 'disconnected') {
+        // transient — give ICE 5s to recover before giving up
+        setTimeout(() => {
+          const p = peers.get(remotePeerId);
+          if (p?.conn?.pc.iceConnectionState === 'disconnected')
+            handlePeerLeft({ from: remotePeerId });
+        }, 5000);
       }
     });
 

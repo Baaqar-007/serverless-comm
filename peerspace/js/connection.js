@@ -115,33 +115,18 @@ class Connection {
       }
     });
 
-    // ── ADDED: ICE Restart on failure ────────────────────────────
-    pc.addEventListener('connectionstatechange', () => {
-      if (pc.connectionState === 'failed') {
-        console.warn('[Connection] Connection failed. Attempting ICE Restart...');
-        pc.restartIce();
-      }
-    });
-
-    // ── ADDED: handle renegotiation (triggered by restartIce) ────
-    pc.addEventListener('negotiationneeded', async () => {
-    // Only handle renegotiation on already-connected peers (e.g. ICE restart).
-    // During initial setup, offer() manages this explicitly.
-    // Without this guard, addStream() + offer() both send offers → broken state.
-    if (this._isNegotiating || pc.connectionState !== 'connected') return;
-    this._isNegotiating = true;
-
-      try {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        this._sig.send('offer', { sdp: pc.localDescription }, this._remoteId);
-        console.log('[Connection] Renegotiation offer sent.');
-      } catch (e) {
-        console.error('[Connection] Renegotiation failed:', e);
-      } finally {
-        this._isNegotiating = false;
-      }
-    });
+    pc.addEventListener('connectionstatechange', async () => {
+  if (pc.connectionState === 'failed') {
+    console.warn('[Connection] Failed. Attempting ICE restart...');
+    try {
+      const offer = await pc.createOffer({ iceRestart: true });
+      await pc.setLocalDescription(offer);
+      this._sig.send('offer', { sdp: pc.localDescription }, this._remoteId);
+    } catch (e) {
+      console.error('[Connection] ICE restart failed:', e);
+    }
+  }
+});
   }
 
   // ── DataChannel wiring ─────────────────────────────────────────
@@ -154,16 +139,6 @@ class Connection {
     dc.onopen = () => {
       this._openChannels.add(dc.label);
       this._emit('channel-open', dc.label);
-
-      // ── ADDED: heartbeat for control channel ──────────────────
-      if (dc.label === PS.DC.CTRL) {
-        console.log('[Connection] Control channel open. Starting heartbeat.');
-        this._heartbeatInterval = setInterval(() => {
-          if (dc.readyState === 'open') {
-            dc.send(JSON.stringify({ t: 'ping', ts: Date.now() }));
-          }
-        }, 15000);
-      }
 
       if (this._openChannels.size === Object.keys(PS.DC).length) {
         this._emit('channels-ready', null);
