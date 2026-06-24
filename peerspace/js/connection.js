@@ -34,6 +34,10 @@ class Connection {
     // ── ontrack deduplication ────────────────────────────────────
     this._emittedStreams = new Set();
 
+    // ── ADDED: heartbeat & negotiation guards ────────────────────
+    this._heartbeatInterval = null;
+    this._isNegotiating     = false;
+
     this.pc = new RTCPeerConnection(PS.ICE);
     this._bindPC();
   }
@@ -89,6 +93,40 @@ class Connection {
         setTimeout(emit, 200);
       }
     };
+
+    // ── ADDED: network status detection (P2P vs TURN) ────────────
+    pc.addEventListener('connectionstatechange', async () => {
+      if (pc.connectionState === 'connected') {
+        const stats = await pc.getStats();
+        let isRelayed = false;
+
+        stats.forEach(report => {
+          if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+            const localCandidate = stats.get(report.localCandidateId);
+            if (localCandidate && localCandidate.candidateType === 'relay') {
+              isRelayed = true;
+            }
+          }
+        });
+
+        const status = isRelayed ? 'Relayed (TURN)' : 'Direct P2P';
+        console.log(`[Network] Connection established. ${status}`);
+        this._emit('network-status', status);
+      }
+    });
+
+    pc.addEventListener('connectionstatechange', async () => {
+  if (pc.connectionState === 'failed') {
+    console.warn('[Connection] Failed. Attempting ICE restart...');
+    try {
+      const offer = await pc.createOffer({ iceRestart: true });
+      await pc.setLocalDescription(offer);
+      this._sig.send('offer', { sdp: pc.localDescription }, this._remoteId);
+    } catch (e) {
+      console.error('[Connection] ICE restart failed:', e);
+    }
+  }
+});
   }
 
   // ── DataChannel wiring ─────────────────────────────────────────
@@ -97,6 +135,7 @@ class Connection {
     dc.binaryType = 'arraybuffer';
     this._channels[dc.label] = dc;
 
+    // ── Common onopen / onclose (with heartbeat for control) ────
     dc.onopen = () => {
       this._openChannels.add(dc.label);
       this._emit('channel-open', dc.label);
@@ -109,6 +148,12 @@ class Connection {
     dc.onclose = () => {
       this._openChannels.delete(dc.label);
       this._emit('channel-close', dc.label);
+
+      // ── ADDED: clear heartbeat if control ─────────────────────
+      if (dc.label === PS.DC.CTRL) {
+        clearInterval(this._heartbeatInterval);
+        this._heartbeatInterval = null;
+      }
     };
 
     dc.onmessage = ({ data }) => {
@@ -212,6 +257,11 @@ class Connection {
   getStats() { return this.pc.getStats(); }
 
   close() {
+    // ── ADDED: clear heartbeat before closing ────────────────────
+    if (this._heartbeatInterval) {
+      clearInterval(this._heartbeatInterval);
+      this._heartbeatInterval = null;
+    }
     Object.values(this._channels).forEach(dc => { try { dc.close(); } catch (_) {} });
     try { this.pc.close(); } catch (_) {}
   }

@@ -8,6 +8,7 @@ const cors       = require('cors');
 
 const app = express();
 app.use(cors());
+app.get('/', (req, res) => res.send('PeerSpace Signaling Broker is active.'));
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*', methods: ['GET', 'POST'] }

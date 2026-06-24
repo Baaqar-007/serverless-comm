@@ -110,8 +110,12 @@
       .on('offer',       handleOffer)
       .on('answer',      handleAnswer)
       .on('ice',         handleIce)
-      .on('room-full',   () => UI.log('Room is full (max 4 peers)', 'error'));
-  }
+      .on('room-full', () => {
+        UI.log('Room is full (max 4 peers)', 'error');
+        alert('This room is currently at maximum capacity.');
+        window.location.href = 'index.html';
+      });
+}
 
   function announce() {
     signaling.send('announce', { name: MY_NAME });
@@ -296,9 +300,16 @@
 
     c.on('ice-state', state => {
       UI.log('ICE [' + remotePeerId.slice(0,8) + '] → ' + state, 'signal');
-      if (state === 'failed' || state === 'disconnected' || state === 'closed') {
+      if (state === 'failed' || state === 'closed') {
         UI.log('Connection lost to ' + remotePeerId.slice(0,8), 'warn');
         handlePeerLeft({ from: remotePeerId });
+      } else if (state === 'disconnected') {
+        // transient — give ICE 5s to recover before giving up
+        setTimeout(() => {
+          const p = peers.get(remotePeerId);
+          if (p?.conn?.pc.iceConnectionState === 'disconnected')
+            handlePeerLeft({ from: remotePeerId });
+        }, 5000);
       }
     });
 
@@ -329,6 +340,17 @@
       UI.log('Channel [' + label.replace('ps:','') + '] open with ' + remotePeerId.slice(0,8), 'ok'));
     c.on('channel-error',  ({ label, error }) =>
       UI.log('Channel error [' + label + ']: ' + error, 'error'));
+
+     // ── NEW: Network status from connection.js ─────────────────────
+    c.on('network-status', (status) => {
+      const badge = document.getElementById('networkBadge');
+      if (!badge) return;
+
+      badge.hidden = false;
+      const isDirect = (status === 'Direct P2P');
+      badge.textContent = isDirect ? '⡀ Direct' : '⏣ Relayed';
+      badge.className = 'network-badge ' + (isDirect ? 'direct' : 'relayed');
+    });
 
     // doc and chat receive handlers delegate to shared managers
     c.onChannel(PS.DC.DOC,  data => docSync?.receive(data));
