@@ -204,7 +204,7 @@
     UI.setStatus('connecting', 'Connecting to ' + (peer.name || remotePeerId.slice(0,8)) + '…');
     UI.log('Creating offer → ' + remotePeerId.slice(0,8), 'signal');
 
-    const c = buildConnection(remotePeerId);
+    const c = await buildConnection(remotePeerId);
     _setPeerConn(remotePeerId, c);
     if (localStream) c.addStream(localStream);
 
@@ -229,7 +229,7 @@
       _teardownPeer(from);
     }
 
-    const c = buildConnection(from);
+    const c = await buildConnection(from);
     _setPeerConn(from, c);
     if (localStream) c.addStream(localStream);
 
@@ -295,8 +295,9 @@
   }
 
   // ── Connection factory ─────────────────────────────────────────
-  function buildConnection(remotePeerId) {
-    const c = new Connection(signaling, MY_ID, remotePeerId);
+  async function buildConnection(remotePeerId) {
+  const iceConfig = await getIceConfig();
+  const c = new Connection(signaling, MY_ID, remotePeerId, iceConfig);
 
     c.on('ice-state', state => {
       UI.log('ICE [' + remotePeerId.slice(0,8) + '] → ' + state, 'signal');

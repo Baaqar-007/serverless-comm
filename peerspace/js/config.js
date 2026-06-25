@@ -8,29 +8,6 @@ const PS = Object.freeze({
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      {
-        urls: "stun:stun.relay.metered.ca:80",
-      },
-      {
-        urls: "turn:global.relay.metered.ca:80",
-        username: "e5b32916d49eafeb4be017c0",
-        credential: "8F08omBCRLzJUWEP",
-      },
-      {
-        urls: "turn:global.relay.metered.ca:80?transport=tcp",
-        username: "e5b32916d49eafeb4be017c0",
-        credential: "8F08omBCRLzJUWEP",
-      },
-      {
-        urls: "turn:global.relay.metered.ca:443",
-        username: "e5b32916d49eafeb4be017c0",
-        credential: "8F08omBCRLzJUWEP",
-      },
-      {
-        urls: "turns:global.relay.metered.ca:443?transport=tcp",
-        username: "e5b32916d49eafeb4be017c0",
-        credential: "8F08omBCRLzJUWEP",
-      }
     ]
   },
   // DataChannel labels
@@ -45,6 +22,20 @@ const PS = Object.freeze({
   MAX_PEERS:  4,                
   SIGNAL_CHANNEL: (roomId) => `ps:room:${roomId}`,
 });
+
+// Fetches full ICE config (including TURN) from the serverless endpoint.
+// Credentials live in Vercel env vars — never in source.
+// Falls back to STUN-only if the fetch fails.
+async function getIceConfig() {
+  try {
+    const res = await fetch('/api/ice');
+    if (!res.ok) throw new Error(res.status);
+    return await res.json();
+  } catch (e) {
+    console.warn('[ICE] Failed to fetch TURN config, falling back to STUN only:', e);
+    return PS.ICE;
+  }
+}
 
 // ── Utilities ────────────────────────────────────────────────────
 

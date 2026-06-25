@@ -16,7 +16,7 @@ class Connection {
    * @param {string}    peerId       - our own peerId
    * @param {string}    remotePeerId - who we're connecting to
    */
-  constructor(signaling, peerId, remotePeerId) {
+constructor(signaling, peerId, remotePeerId, iceConfig) {
     this._sig          = signaling;
     this._peerId       = peerId;
     this._remoteId     = remotePeerId;
@@ -38,7 +38,7 @@ class Connection {
     this._heartbeatInterval = null;
     this._isNegotiating     = false;
 
-    this.pc = new RTCPeerConnection(PS.ICE);
+    this.pc = new RTCPeerConnection(iceConfig || PS.ICE);
     this._bindPC();
   }
 
