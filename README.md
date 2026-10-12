@@ -18,7 +18,7 @@ No accounts. No logins. No stored sessions. When the room closes, nothing persis
 
 ### Communication
 - **Video & audio** — up to 4 simultaneous peers, dynamic grid layout
-- **Live chat** — with typing indicators, all P2P
+- **Live chat** — all P2P
 - **Mute / camera toggle** — state broadcast to all peers instantly
 
 ### Collaboration
@@ -33,8 +33,8 @@ No accounts. No logins. No stored sessions. When the room closes, nothing persis
 ### Privacy
 - All session data is peer-to-peer after the initial handshake
 - Transcription and summarisation run entirely on-device
-- No analytics, no telemetry, no third-party scripts
-- TURN relay credentials are stored in server environment variables — never shipped in client source
+- No analytics, no telemetry. Libraries (Socket.io, Quill, Transformers.js) and fonts load from public CDNs; Google STUN is used for connection setup
+- TURN relay credentials are stored in server environment variables, not in the source repo (they are served to clients by `/api/ice`)
 
 ---
 
@@ -54,7 +54,7 @@ No accounts. No logins. No stored sessions. When the room closes, nothing persis
 | Label | Purpose |
 |---|---|
 | `ps:doc` | Quill Delta document sync |
-| `ps:chat` | Chat messages + typing indicators |
+| `ps:chat` | Chat messages |
 | `ps:file` | Chunked binary file transfer |
 | `ps:ctrl` | Ping/pong RTT stats, media state |
 | `ps:transcript` | Live transcript chunks |
