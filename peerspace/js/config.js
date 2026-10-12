@@ -19,8 +19,6 @@ const PS = Object.freeze({
     TRANSCRIPT: 'ps:transcript',  // live transcript chunks — one per speaker
   },
   CHUNK_SIZE: 64 * 1024,        // 64 KB per file chunk
-  MAX_PEERS:  4,                
-  SIGNAL_CHANNEL: (roomId) => `ps:room:${roomId}`,
 });
 
 // Fetches full ICE config (including TURN) from the serverless endpoint.

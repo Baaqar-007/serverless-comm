@@ -1,0 +1,74 @@
+diff --git a/README.md b/README.md
+index f20fc03..de24c1e 100644
+--- a/README.md
++++ b/README.md
+@@ -18,7 +18,7 @@ No accounts. No logins. No stored sessions. When the room closes, nothing persis
+ 
+ ### Communication
+ - **Video & audio** — up to 4 simultaneous peers, dynamic grid layout
+-- **Live chat** — with typing indicators, all P2P
++- **Live chat** — all P2P
+ - **Mute / camera toggle** — state broadcast to all peers instantly
+ 
+ ### Collaboration
+@@ -33,8 +33,8 @@ No accounts. No logins. No stored sessions. When the room closes, nothing persis
+ ### Privacy
+ - All session data is peer-to-peer after the initial handshake
+ - Transcription and summarisation run entirely on-device
+-- No analytics, no telemetry, no third-party scripts
+-- TURN relay credentials are stored in server environment variables — never shipped in client source
++- No analytics, no telemetry. Libraries (Socket.io, Quill, Transformers.js) and fonts load from public CDNs; Google STUN is used for connection setup
++- TURN relay credentials are stored in server environment variables, not in the source repo (they are served to clients by `/api/ice`)
+ 
+ ---
+ 
+@@ -54,7 +54,7 @@ No accounts. No logins. No stored sessions. When the room closes, nothing persis
+ | Label | Purpose |
+ |---|---|
+ | `ps:doc` | Quill Delta document sync |
+-| `ps:chat` | Chat messages + typing indicators |
++| `ps:chat` | Chat messages |
+ | `ps:file` | Chunked binary file transfer |
+ | `ps:ctrl` | Ping/pong RTT stats, media state |
+ | `ps:transcript` | Live transcript chunks |
+diff --git a/peerspace/index.html b/peerspace/index.html
+index 5e90e28..5830240 100644
+--- a/peerspace/index.html
++++ b/peerspace/index.html
+@@ -47,9 +47,9 @@
+     <div class="lobby-note">
+       <strong>Solar Punk Ecosystem:</strong> Click <em>Synthesize &amp; Open</em> to bloom a room tab.
+       Copy that tab's URL and plant it into a <strong>second tab or window</strong> with a different designation.
+-      Both entities will form a symbiotic P2P connection via WebRTC with <strong>zero central server consumption</strong>.
++      Both entities will form a symbiotic P2P connection via WebRTC — a tiny signaling server only introduces peers; your video, chat and files flow <strong>directly between browsers</strong>.
+       <br><br>
+-      <span class="muted-icon">☀️</span> Harness <strong>Chrome</strong> for optimal canopy growth (Firefox restricts BroadcastChannel on local files).
++      <span class="muted-icon">☀️</span> Harness <strong>Chrome</strong> for optimal canopy growth.
+     </div>
+   </div>
+ </div>
+diff --git a/peerspace/js/config.js b/peerspace/js/config.js
+index 18a2014..c108795 100644
+--- a/peerspace/js/config.js
++++ b/peerspace/js/config.js
+@@ -19,8 +19,6 @@ const PS = Object.freeze({
+     TRANSCRIPT: 'ps:transcript',  // live transcript chunks — one per speaker
+   },
+   CHUNK_SIZE: 64 * 1024,        // 64 KB per file chunk
+-  MAX_PEERS:  4,                
+-  SIGNAL_CHANNEL: (roomId) => `ps:room:${roomId}`,
+ });
+ 
+ // Fetches full ICE config (including TURN) from the serverless endpoint.
+diff --git a/peerspace/room.html b/peerspace/room.html
+index c6ae669..7b83413 100644
+--- a/peerspace/room.html
++++ b/peerspace/room.html
+@@ -225,7 +225,6 @@
+ <script src="js/doc-sync.js?v=12"></script>
+ <script src="js/chat.js?v=12"></script>
+ <script src="js/file-transfer.js?v=12"></script>
+-<script src="js/model-config.js"></script>
+ <script src="js/transcript-store.js?v=12"></script>
+ <script src="js/transcription.js?v=12"></script>
+ <script src="js/room.js?v=12"></script>
