@@ -11,8 +11,17 @@ document.addEventListener('DOMContentLoaded', () => {
   const genBtn     = document.getElementById('genRoomBtn');
   const errMsg     = document.getElementById('errMsg');
 
-  // Pre-fill a generated room ID
-  roomInput.value = generateRoomId();
+  // Room code from an invite link (?r=CODE) wins; otherwise generate a fresh one.
+  // We only trim/uppercase/limit length (matching the input's maxlength) — we do
+  // not strip characters, so custom codes like "MY-TEAM" survive the round trip.
+  const invited = (new URLSearchParams(location.search).get('r') || '')
+    .trim().toUpperCase().slice(0, 8);
+  if (invited) {
+    roomInput.value = invited;
+    nameInput.focus();           // the only thing an invitee still needs to enter
+  } else {
+    roomInput.value = generateRoomId();
+  }
 
   genBtn.addEventListener('click', () => {
     roomInput.value = generateRoomId();
@@ -37,6 +46,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Also open on Enter in room input
   roomInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') joinBtn.click();
+  });
+  // ...and in the name field, so an invitee can type a name and press Enter.
+  nameInput.addEventListener('keydown', e => {
     if (e.key === 'Enter') joinBtn.click();
   });
 
