@@ -18,13 +18,22 @@
   // ── Session identity ───────────────────────────────────────────
   const params  = new URLSearchParams(location.search);
   const ROOM_ID = params.get('r');
-  const MY_NAME = decodeURIComponent(params.get('n') || 'Anonymous');
+  // URLSearchParams has already percent-decoded the value. Decoding it a second
+  // time threw a URIError for names containing a literal '%'.
+  const MY_NAME = (params.get('n') || '').trim().slice(0, 30);
   const MY_ID   = generateId();
 
   if (!ROOM_ID) {
     document.body.innerHTML =
       '<p style="padding:40px;font-family:sans-serif;color:#ef4444">' +
       'No room ID. <a href="index.html">Return to lobby</a>.</p>';
+    return;
+  }
+
+  // Arrived without a name (e.g. someone opened a bare room link): send them to
+  // the lobby with the room code prefilled so they can pick a name first.
+  if (!MY_NAME) {
+    location.replace('index.html?r=' + encodeURIComponent(ROOM_ID));
     return;
   }
 
@@ -655,7 +664,11 @@
       });
 
       document.getElementById('copyLink').addEventListener('click', () => {
-        navigator.clipboard?.writeText(location.href).then(() => {
+        // Invite link points at the lobby with only the room code, so the
+        // recipient chooses their own name (the current URL contains ours).
+        const invite = new URL('index.html', location.href);
+        invite.search = new URLSearchParams({ r: ROOM_ID }).toString();
+        navigator.clipboard?.writeText(invite.href).then(() => {
           const btn = document.getElementById('copyLink');
           const orig = btn.textContent;
           btn.textContent = 'Copied!';
