@@ -443,12 +443,10 @@
     // Stop live transcription.
     if (transcriptMgr) { transcriptMgr.stop(); transcriptMgr = null; }
 
-    // Fire post-meeting summariser if there is transcript content.
-    const transcript = TranscriptStore.getAll();
-    if (transcript.length > 0) {
-      _triggerSummarizer(transcript);
-      TranscriptStore.clear();
-    }
+    // NOTE: the post-meeting summariser is deliberately NOT started here.
+    // _teardownAll() also runs from 'beforeunload' (tab close / reload), where
+    // spinning up a worker and a model download in a dying page is wasted work.
+    // endMeeting() owns that step instead.
   }
 
   function _triggerSummarizer(transcript) {
@@ -623,6 +621,13 @@
       signaling?.destroy();
       localStream?.getTracks().forEach(t => t.stop());
       UI.setStatus('waiting', 'Session ended');
+
+      // Summarise only on an explicit End Meeting (not on tab close / reload).
+      const transcript = TranscriptStore.getAll();
+      if (transcript.length > 0) {
+        _triggerSummarizer(transcript);
+        TranscriptStore.clear();
+      }
     },
   };
 
