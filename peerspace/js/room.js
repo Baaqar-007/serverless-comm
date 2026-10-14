@@ -444,7 +444,7 @@
     if (transcriptMgr) { transcriptMgr.stop(); transcriptMgr = null; }
 
     // NOTE: the post-meeting summariser is deliberately NOT started here.
-    // _teardownAll() also runs from 'beforeunload' (tab close / reload), where
+    // _teardownAll() also runs from 'pagehide' (tab close / reload), where
     // spinning up a worker and a model download in a dying page is wasted work.
     // endMeeting() owns that step instead.
   }
@@ -571,7 +571,19 @@
     });
   }
 
-  window.addEventListener('beforeunload', () => {
+  // Ask before closing/reloading if a transcript exists that would be lost.
+  // This handler must ONLY decide whether to prompt: if the user picks "Stay",
+  // the page keeps running, so nothing may be torn down here.
+  window.addEventListener('beforeunload', (e) => {
+    if (TranscriptStore.getAll().length > 0) {
+      e.preventDefault();
+      e.returnValue = '';   // some browsers need this to show the prompt
+    }
+  });
+
+  // 'pagehide' fires only when the page is really going away (after any prompt
+  // was accepted), so the cleanup lives here instead.
+  window.addEventListener('pagehide', () => {
     signaling?.send('leaving', {});
     _teardownAll();
     signaling?.destroy();
