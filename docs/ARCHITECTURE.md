@@ -1,125 +1,85 @@
 # PeerSpace — Architecture
 
-> Written as a map of how the project works *today*, not how it should work.
-> Keep it updated when behaviour changes. Items marked **(unverified)** are
-> things read from the code but not yet confirmed in a browser.
+A map of how PeerSpace works, for contributors.
 
-## 1. The big picture
+## Overview
 
-PeerSpace is a browser-to-browser meeting room (video, chat, shared doc,
-file transfer, live transcript). Browsers talk **directly** over WebRTC.
-Two small pieces of server infrastructure exist only to help them find each other:
+PeerSpace is a browser-to-browser meeting room (video, chat, shared document, file
+transfer, live transcript). Browsers talk **directly** over WebRTC. A small signaling
+server only helps them find each other.
 
 | Piece | Where | Job |
 |---|---|---|
-| Static site (`peerspace/`) | Vercel (auto-deploys `main`) | Serves the HTML/JS/CSS |
-| `/api/ice` (`peerspace/api/ice.js`) | Vercel serverless | Returns STUN + TURN config (TURN creds come from env vars) |
-| Signaling server (`server/server.js`) | Render (free tier) | Socket.io "switchboard": rooms + relays handshake messages. Carries **no** media or user content |
+| Static site (`peerspace/`) | Vercel | Serves the HTML/JS/CSS |
+| `/api/ice` (`peerspace/api/ice.js`) | Vercel serverless | Returns STUN/TURN configuration (TURN credentials come from environment variables) |
+| Signaling server (`server/server.js`) | Render | Socket.io: manages rooms and relays handshake messages. Carries no media or user content |
 
-Once two browsers are connected, video, chat, doc edits, files and transcripts
-never touch a server (except TURN relay, which only forwards encrypted bytes).
+Once peers are connected, video, chat, document edits, files and transcripts flow
+directly between browsers (or through a TURN relay when a direct path is impossible).
 
-```
- Browser A ──┐                         ┌── Browser B
-             │   1. join-room / signal │
-             └──────► Render (Socket.io) ◄──────┘
-             │
-             └────────── 2. WebRTC (direct, or via TURN) ──────────┘
-```
+## Topology
 
-## 2. Topology: full mesh, max 4
+Full mesh, up to 4 peers per room (limit enforced in `server/server.js`).
+Each peer holds one connection to every other peer.
 
-Every peer connects to every other peer: 4 people = 3 connections each.
-`ROOM_MAX = 4` is enforced server-side (`server.js`). That is the only place the limit lives.
+## Connection lifecycle
 
-## 3. Connection lifecycle (the part that took weeks to get right)
+1. The page loads `room.html?r=<ROOM>&n=<NAME>`; a random peer ID is generated per page load.
+2. `signaling.js` connects to the server and joins the room.
+3. The server returns the list of peers already present.
+4. The newcomer announces its name to each peer; they acknowledge.
+5. The peer with the lexically **lower** ID sends the offer. This deterministic
+   tie-break prevents both sides offering at once ("glare").
+6. The offerer creates five DataChannels; the answerer receives them.
+7. When all five are open, the session goes live.
 
-1. Page loads `room.html?r=<ROOM>&n=<NAME>`. A random `MY_ID` (UUID) is generated per page load.
-2. `signaling.js` connects to the Socket.io server and emits `join-room(roomId, peerId)`.
-3. Server replies `peer-list` (who is already there) and tells others `peer-joined`.
-4. The newcomer sends an `announce` (name) to each existing peer; they reply `announce:ack`.
-5. **Who offers?** The peer whose `MY_ID` is lexically **lower** creates the offer.
-   This deterministic tie-break prevents "glare" (both sides offering at once).
-6. The offerer creates **5 DataChannels**; the answerer receives them via `ondatachannel`.
-7. When all 5 are open → `channels-ready` → chat/doc/file/transcript managers are wired and the session goes live.
+ICE candidates are buffered in two places: before the connection object exists
+(`room.js`) and before the remote description is set (`connection.js`).
 
-### DataChannels (`config.js → PS.DC`)
+### DataChannels (`config.js`)
 
-| Label | Options | Carries |
+| Label | Delivery | Carries |
 |---|---|---|
-| `ps:doc` | ordered | Quill Deltas (document edits) |
+| `ps:doc` | ordered | Document edits (Quill Deltas) |
 | `ps:chat` | ordered | Chat messages |
-| `ps:file` | ordered | File chunks (64 KB each) |
-| `ps:ctrl` | **unordered, maxRetransmits 0** | Pings (every 2 s), media-state, etc. Loss is acceptable |
+| `ps:file` | ordered | File chunks |
+| `ps:ctrl` | unordered, no retransmits | Pings, media-state |
 | `ps:transcript` | ordered | Finished transcript chunks |
 
-### ICE candidate buffering (two layers — both are needed)
-
-- `room.js` `_pendingIceBuf`: candidates that arrive **before the `Connection` object exists** (it is built asynchronously after an `await getIceConfig()`).
-- `connection.js` queue: candidates that arrive **before `setRemoteDescription` completes**.
-
-### Failure handling
-
-- `connection.js` reacts to ICE `disconnected` (delayed recovery check) and `failed` (ICE restart attempt).
-- `room.js` also listens to `conn-state` and may remove the peer when the state is `failed`/`closed`.
-- **(unverified)** These two paths may race, making the ICE-restart path effectively unreachable. Real-world reconnect works, so *do not remove either until logging shows which path actually recovers connections.*
-
-## 4. Signaling server (`server/server.js`)
-
-- Events: `join-room`, `signal` (relay; directed with `to`, otherwise broadcast to room), `disconnect` → `peer-left`.
-- Rooms are an in-memory `Map`: restarting the server forgets all rooms (clients are expected to reconnect and re-join).
-- CORS is `*`. Any client can join any room by knowing its code (no auth).
-- On Render's free tier the service sleeps after inactivity and takes a while to wake; Uptime Robot pings it to avoid that.
-
-## 5. Feature modules (`peerspace/js/`)
+## Modules (`peerspace/js/`)
 
 | File | Responsibility |
 |---|---|
-| `config.js` | Constants, `getIceConfig()`, ID helpers, `selectModels()` (currently unused by the transcription code, which hardcodes its model) |
-| `signaling.js` | Socket.io client wrapper (server URL is hardcoded here) |
-| `connection.js` | One `RTCPeerConnection` + its DataChannels per remote peer |
-| `room.js` | Orchestrator **and** the whole `UI` object (~1100 lines). Peer records, handshake, media, teardown, rendering |
+| `config.js` | Constants, ICE configuration helper |
+| `signaling.js` | Socket.io client wrapper |
+| `connection.js` | One `RTCPeerConnection` and its DataChannels per remote peer |
+| `room.js` | Orchestrator and UI rendering |
 | `chat.js` | Chat over `ps:chat` |
-| `doc-sync.js` | Broadcasts Quill Deltas over `ps:doc` (no CRDT/OT; no initial-state sync) |
-| `file-transfer.js` | Chunked transfer; whole file read into memory; fixed 8 ms pause per 64 KB chunk (no backpressure) |
-| `transcription.js` | Mic → AudioWorklet → energy VAD → segments → Moonshine worker |
-| `transcript-store.js` | In-memory transcript list |
-| `workers/audio-processor.js` | AudioWorklet: slices mic into frames |
-| `workers/transcription.worker.js` | Runs Moonshine (Transformers.js) |
-| `workers/summarizer.worker.js` | Runs distilbart summariser + crude action-item regexes |
+| `doc-sync.js` | Document edit sync over `ps:doc` |
+| `file-transfer.js` | Chunked file transfer |
+| `transcription.js` | Mic → AudioWorklet → voice-activity detection → speech-to-text worker |
+| `transcript-store.js` | In-memory transcript |
+| `workers/` | Audio processor, transcription worker, summariser worker |
 
-## 6. Transcription pipeline (tuned — treat carefully)
+## Transcription
 
-Each peer transcribes **only their own mic**, then broadcasts the text, so every
-participant sees one merged feed.
+Each peer transcribes **its own microphone** locally (in-browser model) and
+broadcasts the resulting text, so everyone sees one merged transcript. A separate
+worker produces a post-meeting summary.
 
-Key tuned constants (`transcription.js`): `SPEECH_THRESHOLD = 0.004`,
-`SILENCE_CLOSE_MS = 1200`, `MIN_SEGMENT_MS = 400`, resample target `16000` Hz.
-`room.js` requests the mic with **echoCancellation / noiseSuppression /
-autoGainControl all `false`** on purpose (raw signal for the recogniser).
-Side effect: the *same stream* is sent to peers, so call audio is not echo-cancelled.
+## Sensitive areas
 
-## 7. Third-party loads
+The connection handshake / ICE handling (`connection.js` and the related parts of
+`room.js`) and the transcription pipeline were tuned over many real-device tests
+across networks. Please keep changes there small, isolated, and manually tested
+(different networks, 3–4 peers, reconnect scenarios) before proposing them.
 
-CDN scripts: Socket.io client, Quill, Transformers.js (in workers), Google Fonts.
-STUN: Google. TURN: from env vars. (No SRI hashes. The workers' Transformers.js
-import should be version-pinned.)
+## Local development
 
-## 8. Protected zones (change only on a dedicated branch + manual test)
+```bash
+cd server && npm install && npm start     # signaling server on :3000
+cd peerspace && npx serve .               # static frontend
+```
 
-1. `connection.js` and the handshake / ICE-buffering / teardown logic in `room.js`
-2. `transcription.js`, both transcription-related workers, `audio-processor.js`, and the mic constraints in `room.js`
-
-## 9. Known issues backlog (not yet fixed)
-
-Open items (see the polish plan):
-
-- Share link includes your name, so the friend who opens it joins as you
-- Name is URL-decoded twice (`decodeURIComponent` on an already-decoded value), so a `%` in a name can crash the room
-- Doc: no initial sync for late joiners, can double-send after everyone leaves and someone rejoins, diverges under concurrent edits
-- Summariser starts on `beforeunload` (closing the tab)
-- `ice.js` can emit `urls: undefined` if an env var is missing
-- Dead UI: stage strip, byte/ICE/cycle stats, typing indicator (UI phase)
-
-Fixed: the missing `js/model-config.js` script tag, dead config constants, and
-stale README/lobby text (`chore/cleanup`).
+Camera/microphone access requires a secure context: `localhost` works; other
+devices need HTTPS (for example a deployment preview).
