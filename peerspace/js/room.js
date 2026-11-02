@@ -37,6 +37,9 @@
     return;
   }
 
+  // Start fetching ICE servers now, so the first peer connection finds them ready.
+  getIceConfig();
+
   // ── Peer state record ──────────────────────────────────────────
   // One of these per remote peer in the room.
   // {

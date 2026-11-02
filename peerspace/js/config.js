@@ -24,15 +24,26 @@ const PS = Object.freeze({
 // Fetches full ICE config (including TURN) from the serverless endpoint.
 // Credentials live in Vercel env vars — never in source.
 // Falls back to STUN-only if the fetch fails.
-async function getIceConfig() {
-  try {
-    const res = await fetch('/api/ice');
-    if (!res.ok) throw new Error(res.status);
-    return await res.json();
-  } catch (e) {
+// The config is fetched once per page and shared by every peer connection
+// (previously each connection made its own request before it could start).
+// We cache the *promise*, so simultaneous callers share one request. A failure
+// is NOT cached: the next caller retries, so one hiccup can't leave the whole
+// session on STUN-only. (If credentials ever expire, add a time limit here.)
+let _iceConfigPromise = null;
+
+function getIceConfig() {
+  if (!_iceConfigPromise) {
+    _iceConfigPromise = (async () => {
+      const res = await fetch('/api/ice');
+      if (!res.ok) throw new Error(res.status);
+      return await res.json();
+    })();
+    _iceConfigPromise.catch(() => { _iceConfigPromise = null; });
+  }
+  return _iceConfigPromise.catch(e => {
     console.warn('[ICE] Failed to fetch TURN config, falling back to STUN only:', e);
     return PS.ICE;
-  }
+  });
 }
 
 // ── Utilities ────────────────────────────────────────────────────
