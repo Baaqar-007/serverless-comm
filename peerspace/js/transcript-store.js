@@ -28,6 +28,23 @@ const TranscriptStore = (() => {
     count()   { return _chunks.length; },
     clear()   { _chunks.length = 0; },
 
+    /** Plain-text export: a small header, then one "[time] speaker: text" line per chunk. */
+    toText(roomId) {
+      if (_chunks.length === 0) return '';
+      const speakers = [...new Set(_chunks.map(c => c.speaker))];
+      const header = [
+        'PeerSpace transcript',
+        'Room: ' + roomId,
+        'Date: ' + new Date(_chunks[0].timestamp).toLocaleString(),
+        'Speakers: ' + speakers.join(', '),
+        '',
+        '',
+      ].join('\n');
+      const lines = _chunks.map(c =>
+        '[' + new Date(c.timestamp).toLocaleTimeString() + '] ' + c.speaker + ': ' + c.text);
+      return header + lines.join('\n') + '\n';
+    },
+
     /** Subscribe to new chunks. Returns an unsubscribe function. */
     onChunk(fn) {
       _listeners.push(fn);

@@ -58,6 +58,7 @@
   let localStream = null;
   let sessionStart = null;
   let _transcribing = true;              // toggled by the Stop/Resume button
+  let _savedTranscriptCount = 0;         // chunks already downloaded (leave prompt ignores them)
   const peers = new Map();                  // peerId → PeerState
   const _pendingIceBuf = new Map();         // peerId → candidate[]
 
@@ -575,7 +576,7 @@
   // This handler must ONLY decide whether to prompt: if the user picks "Stay",
   // the page keeps running, so nothing may be torn down here.
   window.addEventListener('beforeunload', (e) => {
-    if (TranscriptStore.getAll().length > 0) {
+    if (TranscriptStore.count() > _savedTranscriptCount) {
       e.preventDefault();
       e.returnValue = '';   // some browsers need this to show the prompt
     }
@@ -733,6 +734,9 @@
         }
         _triggerSummarizer(transcript);
       });
+
+      document.getElementById('btnDownloadTranscript')
+        .addEventListener('click', () => this.downloadTranscript());
 
       document.querySelectorAll('.tab').forEach(t =>
         t.addEventListener('click', () => this.switchTab(t.dataset.tab)));
@@ -1081,6 +1085,25 @@ setPeerVideo(peerId, stream) {
     updateSummaryProgress(msg) {
       const el = document.getElementById('summaryProgress');
       if (el) el.textContent = msg;
+    },
+
+    downloadTranscript() {
+      const text = TranscriptStore.toText(ROOM_ID);
+      if (!text) { this.log('No transcript to download yet', 'warn'); return; }
+
+      const day  = new Date().toISOString().slice(0, 10);
+      const name = 'PeerSpace_Transcript_' + ROOM_ID.replace(/[^\w-]/g, '_') + '_' + day + '.txt';
+
+      // Blob + object URL (no size limit, unlike a data: URL).
+      const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+      const a = Object.assign(document.createElement('a'), { href: url, download: name });
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+      _savedTranscriptCount = TranscriptStore.count();
+      this.log('Transcript saved: ' + name, 'ok');
     },
 
     _exportSummary(result) {

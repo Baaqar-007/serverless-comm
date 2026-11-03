@@ -1171,6 +1171,23 @@ body {
 .summarise-btn:hover  { transform: translateY(-2px); box-shadow: var(--shadow-btn-hover); }
 .summarise-btn:active { transform: translateY(1px);  box-shadow: var(--shadow-btn-active); }
 
+/* Download transcript: compact, so it doesn't squeeze the two main buttons */
+.download-btn {
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  border: none;
+  border-radius: var(--rad-md);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: var(--shadow-btn);
+  transition: var(--smooth);
+  background: linear-gradient(135deg, #86efac, #22c55e);
+  color: #fff;
+}
+.download-btn:hover  { transform: translateY(-2px); box-shadow: var(--shadow-btn-hover); }
+.download-btn:active { transform: translateY(1px);  box-shadow: var(--shadow-btn-active); }
+
 /* End Meeting in topbar */
 .ctrl-btn-end {
   background: linear-gradient(135deg, #fca5a5, #ef4444) !important;
