@@ -634,12 +634,10 @@
       localStream?.getTracks().forEach(t => t.stop());
       UI.setStatus('waiting', 'Session ended');
 
-      // Summarise only on an explicit End Meeting (not on tab close / reload).
-      const transcript = TranscriptStore.getAll();
-      if (transcript.length > 0) {
-        _triggerSummarizer(transcript);
-        TranscriptStore.clear();
-      }
+      // The summariser is opt-in: it runs only when the user clicks "Summarise
+      // Now". We deliberately keep the transcript in memory after the meeting
+      // ends, so it can still be summarised later, and so the leave-site prompt
+      // (which checks the store) still protects an unsaved transcript.
     },
   };
 
